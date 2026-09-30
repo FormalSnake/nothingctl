@@ -11,7 +11,7 @@ use bluer::{Address, Device, Session, Uuid};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use super::{Connection, DeviceInfo, select};
+use super::{Connection, DeviceInfo, UnsupportedModel, select};
 use crate::protocol::frame::hex;
 use crate::protocol::model::{self, CONTROL_UUID, FAST_PAIR_UUID};
 
@@ -128,18 +128,14 @@ pub async fn open(address: Option<&str>) -> anyhow::Result<Connection> {
 
     let has_fast_pair = device.uuids().await.ok().flatten().is_some_and(|u| u.contains(&uuid(FAST_PAIR_UUID)));
     if !has_fast_pair {
-        bail!("{} lists no Fast Pair service, so its model cannot be identified; nothing was sent", chosen.address);
+        return Err(UnsupportedModel { model_id: None, address: chosen.address }.into());
     }
     let model_id = read_model_id(&session, &device).await?;
     crate::debug!("model id {model_id}");
-    let model = model::by_model_id(&model_id).ok_or_else(|| {
-        anyhow!("model id {model_id} is not supported (supported: {}); nothing was sent", supported())
-    })?;
+    let Some(model) = model::by_model_id(&model_id) else {
+        return Err(UnsupportedModel { model_id: Some(model_id), address: chosen.address }.into());
+    };
 
     let (stream, handle) = connect_service(&session, &device, uuid(CONTROL_UUID)).await?;
     Ok(Connection { device: chosen, model, stream: Box::new(stream), _guard: Box::new((handle, session)) })
-}
-
-fn supported() -> String {
-    model::MODELS.iter().map(|m| format!("{} {}", m.base, m.name)).collect::<Vec<_>>().join(", ")
 }

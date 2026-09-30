@@ -33,6 +33,34 @@ pub struct Connection {
     pub _guard: Box<dyn Send>,
 }
 
+/// The device answered with a model id that has no verified table, or offers
+/// no Fast Pair service to read one from. Nothing was sent to it.
+#[derive(Debug)]
+pub struct UnsupportedModel {
+    pub model_id: Option<String>,
+    pub address: String,
+}
+
+impl std::fmt::Display for UnsupportedModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let supported = crate::protocol::model::MODELS
+            .iter()
+            .map(|m| format!("{} {}", m.base, m.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        match &self.model_id {
+            Some(id) => write!(f, "model id {id} on {} is not supported (supported: {supported}); nothing was sent", self.address),
+            None => write!(
+                f,
+                "{} lists no Fast Pair service, so its model cannot be identified (supported: {supported}); nothing was sent",
+                self.address
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnsupportedModel {}
+
 /// Picks the device: the given address, or the only connected one.
 pub fn select(devices: Vec<DeviceInfo>, address: Option<&str>) -> anyhow::Result<DeviceInfo> {
     if let Some(addr) = address {

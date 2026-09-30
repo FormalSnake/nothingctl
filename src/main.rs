@@ -17,6 +17,11 @@ use protocol::frame::OpCounter;
 use protocol::model::{self, Model};
 use protocol::state::snapshot;
 use session::{Link, planned_action, planned_connect};
+use transport::UnsupportedModel;
+
+/// Exit code for a device refused over its model, distinct from 1 (link or
+/// connection failure) and 2 (usage error, from clap).
+const EXIT_UNSUPPORTED: u8 = 3;
 
 #[derive(Parser)]
 #[command(name = "nothingctl", version, about = "Control Nothing and CMF audio devices over Bluetooth")]
@@ -80,9 +85,22 @@ async fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             eprintln!("error: {e:#}");
-            ExitCode::FAILURE
+            if e.downcast_ref::<UnsupportedModel>().is_some() {
+                ExitCode::from(EXIT_UNSUPPORTED)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
+}
+
+fn unsupported_line(e: &UnsupportedModel) -> serde_json::Value {
+    serde_json::json!({
+        "type": "error",
+        "code": "unsupported-model",
+        "modelId": e.model_id,
+        "message": e.to_string(),
+    })
 }
 
 fn print_frames(frames: &[(String, &str)]) {
@@ -162,7 +180,15 @@ async fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Watch { device } => {
-            let conn = transport::open(device.as_deref()).await?;
+            let conn = match transport::open(device.as_deref()).await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    if let Some(u) = e.downcast_ref::<UnsupportedModel>() {
+                        print_json(&unsupported_line(u));
+                    }
+                    return Err(e);
+                }
+            };
             let (r, w) = tokio::io::split(conn.stream);
             let mut link = Link::new(conn.model, r, w);
             let lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
@@ -201,5 +227,36 @@ fn print_status(s: &protocol::state::Snapshot) {
     }
     if let Some(sp) = &s.spatial {
         println!("spatial      {}  ({})", or_unknown(sp.mode), sp.available.join(", "));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_model_line() {
+        let e = UnsupportedModel { model_id: Some("ABCDEF".into()), address: "AA:BB".into() };
+        let line = serde_json::to_string(&unsupported_line(&e)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v.as_object().unwrap().len(), 4);
+        assert_eq!(v["type"], "error");
+        assert_eq!(v["code"], "unsupported-model");
+        assert_eq!(v["modelId"], "ABCDEF");
+        let message = v["message"].as_str().unwrap();
+        assert!(message.contains("ABCDEF") && message.contains("B175") && message.contains("nothing was sent"));
+        assert!(!line.contains('\n'));
+
+        let none = unsupported_line(&UnsupportedModel { model_id: None, address: "AA:BB".into() });
+        assert_eq!(none["code"], "unsupported-model");
+        assert!(none["modelId"].is_null());
+    }
+
+    #[test]
+    fn unsupported_exit_code_differs_from_link_failure() {
+        let e: anyhow::Error = UnsupportedModel { model_id: None, address: "AA".into() }.into();
+        assert!(e.downcast_ref::<UnsupportedModel>().is_some());
+        assert_ne!(EXIT_UNSUPPORTED, 1);
+        assert_ne!(EXIT_UNSUPPORTED, 2);
     }
 }

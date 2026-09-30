@@ -85,7 +85,10 @@ used. `-v` prints every frame sent and received on stderr.
 `set` arguments on stdin, one per line (`anc high`), and answers
 `{"type":"ack","cmd":"anc high"}` or `{"type":"error","message":"..."}`. It
 prints `{"type":"disconnected"}` and exits 1 when the link drops, and exits 0
-when stdin closes.
+when stdin closes. A device refused over its model gets one
+`{"type":"error","code":"unsupported-model","modelId":"...","message":"..."}`
+line (`modelId` is `null` when the device offers no Fast Pair service to read
+it from) before `watch` exits 3.
 
 Snapshot:
 
@@ -109,6 +112,15 @@ Snapshot:
 not reported yet. `eq.preset` can read `dirac` (Dirac Opteo), which ear-web
 decodes but does not offer, so it is not in `available`. `eq.custom` is
 `[bass, mid, treble]`, read when the custom preset is active.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Done, or `watch` saw stdin close |
+| 1 | BlueZ, link or connection failure, or `watch` saw the link drop |
+| 2 | Bad arguments |
+| 3 | Unsupported model: the model id has no verified table, or cannot be read because the device has no Fast Pair service. Nothing was sent. `status` and `set` print the reason on stderr, `watch` also prints the `unsupported-model` line on stdout |
 
 ## Safety
 
