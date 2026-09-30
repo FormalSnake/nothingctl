@@ -1,0 +1,22 @@
+[package]
+name = "nothingctl"
+version = "0.1.0"
+edition = "2024"
+description = "Control Nothing and CMF audio devices over Bluetooth"
+license = "MIT"
+repository = "https://github.com/FormalSnake/nothingctl"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["rt", "macros", "io-util", "io-std", "time", "sync"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17.4", features = ["bluetoothd", "rfcomm"] }
+futures = "0.3.34"
+uuid = "1.26.1"
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["test-util", "rt", "macros", "io-util", "time", "sync"] }
