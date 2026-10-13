@@ -260,12 +260,19 @@ mod tests {
             for f in parser.push(&buf[..n]) {
                 let _ = sent.send(f.bytes().to_vec());
                 let answer = match f.cmd() {
-                    0xC007 => Some(reply(0x4007, &[0x01, 0x06, 80])),
+                    0xC007 => Some(reply(0x4007, &[0x04, 0x02, 80, 0x03, 80, 0x04, 80, 0x06, 80])),
                     0xC050 => Some(reply(0x4050, &[0x06])),
                     0xC042 => Some(reply(0x4042, b"1.2.3")),
                     0xC041 => Some(reply(0x4041, &[0x01])),
                     0xC01E => Some(reply(0x401E, &[0x01, 0x05])),
                     0xC04F => Some(reply(0x404F, &[0x03, 0x00])),
+                    0xC05A => Some(reply(0x405A, &[0x01])),
+                    0xC01F => Some(reply(0x401F, &[0x05])),
+                    0xC00E => Some(reply(0x400E, &[0x01, 0x01, 0x01])),
+                    0xC04E => Some(reply(0x404E, &[0x01, 0x0A])),
+                    0xC067 => Some(reply(0x4067, &[0x00])),
+                    0xC071 => Some(reply(0x4071, &[0x01])),
+                    0xC068 => Some(reply(0x4068, &[0x00])),
                     0xC044 => Some(reply(0x4044, &crate::protocol::action::custom_eq_payload(&B175, [1, 2, 3]))),
                     _ => None,
                 };
@@ -292,6 +299,8 @@ mod tests {
         assert_eq!(snap["eq"]["custom"], serde_json::json!([1.0, 2.0, 3.0]));
         assert_eq!(snap["lowLatency"], true);
         assert_eq!(snap["spatial"]["mode"], "theatre");
+        assert_eq!(snap["personalSound"], true);
+        assert_eq!(snap["inEar"], serde_json::Value::Null);
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         let mut ids = Vec::new();
@@ -320,6 +329,28 @@ mod tests {
         }
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0][..16], *"5560010ff003000e", "op 0e: 12 connect reads and one custom eq read came first");
+    }
+
+    /// Every model's status read completes against a headset that answers
+    /// its reads, and sends only reads.
+    #[tokio::test(start_paused = true)]
+    async fn status_every_model() {
+        for model in crate::protocol::model::MODELS {
+            let (host, dev) = duplex(4096);
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            tokio::spawn(fake_device(dev, tx));
+            let (r, w) = tokio::io::split(host);
+            let mut link = Link::new(model, r, w);
+            let start = Instant::now();
+            link.connect_sequence().await.unwrap();
+            assert!(link.state.complete(model), "{}", model.base);
+            assert!(Instant::now() - start < SETTLE, "{} waited for the settle timeout", model.base);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            while let Ok(f) = rx.try_recv() {
+                let id = u16::from_le_bytes([f[3], f[4]]);
+                assert_eq!(id & 0xF000, 0xC000, "{} sent {id:04x}", model.base);
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]

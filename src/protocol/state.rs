@@ -12,6 +12,18 @@ pub const BATTERY_PUSH: u16 = 0xE001;
 pub const FIRMWARE_REPLY: u16 = 0x4042;
 pub const ANC_REPLY: u16 = 0x401E;
 pub const ANC_PUSH: u16 = 0xE003;
+pub const ANC_PUSH_ALT: u16 = 0x6003;
+pub const ADVANCED_EQ_REPLY: u16 = 0x404C;
+pub const IN_EAR_REPLY: u16 = 0x400E;
+pub const BASS_REPLY: u16 = 0x404E;
+pub const PERSONAL_SOUND_REPLY: u16 = 0x405A;
+pub const PERSONAL_SOUND_PUSH: u16 = 0xE019;
+pub const PERSONAL_SOUND_PUSH_ALT: u16 = 0x6019;
+pub const LEAKAGE_REPLY: u16 = 0x4071;
+pub const LONG_BATTERY_REPLY: u16 = 0x4067;
+pub const FLAT_EQ_REPLY: u16 = 0x4068;
+pub const FLAT_EQ_PUSH: u16 = 0xE01C;
+pub const FLAT_EQ_PUSH_ALT: u16 = 0x601C;
 pub const CUSTOM_EQ_REPLY: u16 = 0x4044;
 pub const LATENCY_REPLY: u16 = 0x4041;
 pub const SPATIAL_REPLY: u16 = 0x404F;
@@ -34,6 +46,13 @@ pub struct State {
     pub low_latency: Option<bool>,
     /// `[mode, head]` as read back.
     pub spatial: Option<[u8; 2]>,
+    pub in_ear: Option<bool>,
+    /// `[enabled, wire level]` as read back.
+    pub bass: Option<[u8; 2]>,
+    pub personal_sound: Option<bool>,
+    pub leakage: Option<u8>,
+    pub long_battery: Option<bool>,
+    pub flat_eq: Option<bool>,
 }
 
 pub fn decode_battery(f: &Frame) -> Vec<(u8, u8, bool)> {
@@ -100,7 +119,7 @@ impl State {
                     self.firmware = Some(v);
                 }
             }
-            ANC_REPLY | ANC_PUSH if !model.anc.is_empty() => {
+            ANC_REPLY | ANC_PUSH | ANC_PUSH_ALT if !model.anc.is_empty() => {
                 if let Some(code) = f.byte(9) {
                     self.anc_code = Some(code);
                 }
@@ -118,6 +137,43 @@ impl State {
             SPATIAL_REPLY if !model.spatial.is_empty() => {
                 if let (Some(mode), Some(head)) = (f.byte(8), f.byte(9)) {
                     self.spatial = Some([mode, head]);
+                }
+            }
+            ADVANCED_EQ_REPLY => {
+                if let Some(adv) = model.eq.advanced.as_ref().filter(|a| a.from_status)
+                    && f.byte(8) == Some(1)
+                {
+                    self.eq_preset = Some(adv.preset);
+                }
+            }
+            IN_EAR_REPLY if model.in_ear => {
+                if let Some(v) = f.byte(10) {
+                    self.in_ear = Some(v == 1);
+                }
+            }
+            BASS_REPLY if !model.bass.is_empty() => {
+                if let (Some(on), Some(level)) = (f.byte(8), f.byte(9)) {
+                    self.bass = Some([on, level]);
+                }
+            }
+            PERSONAL_SOUND_REPLY | PERSONAL_SOUND_PUSH | PERSONAL_SOUND_PUSH_ALT if model.personal_sound => {
+                if let Some(v) = f.byte(8) {
+                    self.personal_sound = Some(v == 1);
+                }
+            }
+            LEAKAGE_REPLY if !model.leakage.is_empty() => {
+                if let Some(v) = f.byte(8) {
+                    self.leakage = Some(v);
+                }
+            }
+            LONG_BATTERY_REPLY if model.long_battery => {
+                if let Some(v) = f.byte(8) {
+                    self.long_battery = Some(v == 1);
+                }
+            }
+            FLAT_EQ_REPLY | FLAT_EQ_PUSH | FLAT_EQ_PUSH_ALT if model.flat_eq => {
+                if let Some(v) = f.byte(8) {
+                    self.flat_eq = Some(v == 1);
                 }
             }
             id if id == model.eq.reply => {
@@ -145,6 +201,12 @@ impl State {
             && (!model.low_latency || self.low_latency.is_some())
             && (model.spatial.is_empty() || self.spatial.is_some())
             && (!self.custom_selected(model) || self.custom_eq.is_some())
+            && (!model.in_ear || self.in_ear.is_some())
+            && (model.bass.is_empty() || self.bass.is_some())
+            && (!model.personal_sound || self.personal_sound.is_some())
+            && (model.leakage.is_empty() || self.leakage.is_some())
+            && (!model.long_battery || self.long_battery.is_some())
+            && (!model.flat_eq || self.flat_eq.is_some())
     }
 }
 
@@ -176,6 +238,13 @@ pub struct EqJson {
 }
 
 #[derive(Serialize)]
+pub struct BassJson {
+    pub enabled: Option<bool>,
+    pub level: Option<u8>,
+    pub levels: u8,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     #[serde(rename = "type")]
@@ -189,6 +258,12 @@ pub struct Snapshot {
     pub eq: EqJson,
     pub low_latency: Option<bool>,
     pub spatial: Option<ModeJson>,
+    pub in_ear: Option<bool>,
+    pub bass: Option<BassJson>,
+    pub personal_sound: Option<bool>,
+    pub leakage: Option<ModeJson>,
+    pub long_battery_mode: Option<bool>,
+    pub flat_eq: Option<bool>,
 }
 
 pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snapshot {
@@ -217,5 +292,18 @@ pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snap
             mode: state.spatial.and_then(|p| model.spatial_by_payload(p)).map(|m| m.name),
             available: model.spatial.iter().map(|m| m.name).collect(),
         }),
+        in_ear: if model.in_ear { state.in_ear } else { None },
+        bass: (!model.bass.is_empty()).then(|| BassJson {
+            enabled: state.bass.map(|[on, _]| on == 1),
+            level: state.bass.and_then(|[_, wire]| model.bass.iter().position(|w| *w == wire)).map(|i| i as u8),
+            levels: model.bass.len() as u8,
+        }),
+        personal_sound: if model.personal_sound { state.personal_sound } else { None },
+        leakage: (!model.leakage.is_empty()).then(|| ModeJson {
+            mode: state.leakage.and_then(|c| model.leakage.iter().find(|m| m.code == c)).map(|m| m.name),
+            available: model.leakage.iter().map(|m| m.name).collect(),
+        }),
+        long_battery_mode: if model.long_battery { state.long_battery } else { None },
+        flat_eq: if model.flat_eq { state.flat_eq } else { None },
     }
 }

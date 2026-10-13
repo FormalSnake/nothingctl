@@ -228,6 +228,27 @@ fn print_status(s: &protocol::state::Snapshot) {
     if let Some(sp) = &s.spatial {
         println!("spatial      {}  ({})", or_unknown(sp.mode), sp.available.join(", "));
     }
+    let on_off = |on: bool| if on { "on" } else { "off" };
+    if let Some(on) = s.in_ear {
+        println!("in-ear       {}", on_off(on));
+    }
+    if let Some(b) = &s.bass {
+        let level = b.level.map_or("unknown".to_string(), |l| l.to_string());
+        let enabled = or_unknown(b.enabled.map(on_off));
+        println!("bass         level {level} of 0..{}, {enabled}", b.levels - 1);
+    }
+    if let Some(on) = s.personal_sound {
+        println!("personal     {}", on_off(on));
+    }
+    if let Some(l) = &s.leakage {
+        println!("leakage      {}  ({})", or_unknown(l.mode), l.available.join(", "));
+    }
+    if let Some(on) = s.long_battery_mode {
+        println!("long battery {}", on_off(on));
+    }
+    if let Some(on) = s.flat_eq {
+        println!("flat eq      {}", on_off(on));
+    }
 }
 
 #[cfg(test)]

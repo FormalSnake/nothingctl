@@ -14,10 +14,14 @@ pub enum Action {
     EqCustom([i8; 3]),
     LowLatency(bool),
     Spatial(String),
+    InEar(bool),
+    Bass(u8),
+    PersonalSound(bool),
+    Leakage(String),
 }
 
-pub const GRAMMAR: &str =
-    "anc <mode> | eq <preset> | eq-custom <bass> <mid> <treble> | low-latency <on|off> | spatial <mode>";
+pub const GRAMMAR: &str = "anc <mode> | eq <preset> | eq-custom <bass> <mid> <treble> | low-latency <on|off> \
+     | spatial <mode> | in-ear <on|off> | bass <level> | personal-sound <on|off> | leakage <mode>";
 
 impl Action {
     pub fn parse<S: AsRef<str>>(args: &[S]) -> Result<Action, String> {
@@ -32,6 +36,12 @@ impl Action {
             ["low-latency", "on"] => Ok(Action::LowLatency(true)),
             ["low-latency", "off"] => Ok(Action::LowLatency(false)),
             ["spatial", mode] => Ok(Action::Spatial(mode.to_string())),
+            ["in-ear", v] => Ok(Action::InEar(on_off(v)?)),
+            ["bass", level] => {
+                level.parse::<u8>().map(Action::Bass).map_err(|_| format!("bass level {level:?} is not a whole number"))
+            }
+            ["personal-sound", v] => Ok(Action::PersonalSound(on_off(v)?)),
+            ["leakage", mode] => Ok(Action::Leakage(mode.to_string())),
             _ => Err(format!("expected {GRAMMAR}")),
         }
     }
@@ -43,6 +53,10 @@ impl Action {
             Action::EqCustom([a, b, c]) => format!("eq-custom {a} {b} {c}"),
             Action::LowLatency(on) => format!("low-latency {}", if *on { "on" } else { "off" }),
             Action::Spatial(m) => format!("spatial {m}"),
+            Action::InEar(on) => format!("in-ear {}", if *on { "on" } else { "off" }),
+            Action::Bass(level) => format!("bass {level}"),
+            Action::PersonalSound(on) => format!("personal-sound {}", if *on { "on" } else { "off" }),
+            Action::Leakage(m) => format!("leakage {m}"),
         }
     }
 
@@ -60,7 +74,16 @@ impl Action {
                     let names = model.eq.presets.iter().filter(|p| p.settable).map(|p| p.name);
                     unsupported(model, "eq preset", name, names)
                 })?;
-                let mut out = vec![(model.eq.write, vec![preset.value, 0x00])];
+                if let Some(adv) = model.eq.advanced.as_ref().filter(|a| a.preset == preset.value) {
+                    let mut out = vec![(Command::AdvancedEqSet, vec![0x01, 0x00])];
+                    out.extend(adv.reads.iter().map(|(c, p)| (*c, p.to_vec())));
+                    return Ok(out);
+                }
+                let mut out = Vec::new();
+                if model.eq.advanced.is_some() {
+                    out.push((Command::AdvancedEqSet, vec![0x00, 0x00]));
+                }
+                out.push((model.eq.write, vec![preset.value, 0x00]));
                 if Some(preset.value) == model.eq.custom_preset {
                     // ear-web requests the custom bands from two code paths.
                     out.push((Command::CustomEqRead, Vec::new()));
@@ -90,6 +113,37 @@ impl Action {
                     .ok_or_else(|| unsupported(model, "spatial mode", name, model.spatial.iter().map(|m| m.name)))?;
                 Ok(vec![(Command::SpatialSet, mode.payload.to_vec())])
             }
+            Action::InEar(on) => {
+                if !model.in_ear {
+                    return Err(format!("{} has no in-ear detection", model.name));
+                }
+                Ok(vec![(Command::InEarSet, vec![0x01, 0x01, u8::from(*on)])])
+            }
+            Action::Bass(level) => {
+                if model.bass.is_empty() {
+                    return Err(format!("{} has no bass enhance", model.name));
+                }
+                let wire = model
+                    .bass
+                    .get(usize::from(*level))
+                    .ok_or_else(|| format!("bass level {level} is outside 0..{}", model.bass.len() - 1))?;
+                Ok(vec![(Command::BassSet, vec![u8::from(*level != 0), *wire])])
+            }
+            Action::PersonalSound(on) => {
+                if !model.personal_sound {
+                    return Err(format!("{} has no personal sound", model.name));
+                }
+                Ok(vec![(Command::PersonalSoundSet, vec![u8::from(*on)])])
+            }
+            Action::Leakage(name) => {
+                if model.leakage.is_empty() {
+                    return Err(format!("{} has no anti-leakage mode", model.name));
+                }
+                let mode = model.leakage_by_name(name).ok_or_else(|| {
+                    unsupported(model, "anti-leakage mode", name, model.leakage.iter().map(|m| m.name))
+                })?;
+                Ok(vec![(Command::LeakageSet, vec![mode.code])])
+            }
         }
     }
 
@@ -102,7 +156,21 @@ impl Action {
             Action::EqCustom(g) => state.custom_eq = Some(g.map(f32::from)),
             Action::LowLatency(on) => state.low_latency = Some(*on),
             Action::Spatial(name) => state.spatial = model.spatial_by_name(name).map(|m| m.payload),
+            Action::InEar(on) => state.in_ear = Some(*on),
+            Action::Bass(level) => {
+                state.bass = model.bass.get(usize::from(*level)).map(|w| [u8::from(*level != 0), *w]);
+            }
+            Action::PersonalSound(on) => state.personal_sound = Some(*on),
+            Action::Leakage(name) => state.leakage = model.leakage_by_name(name).map(|m| m.code),
         }
+    }
+}
+
+fn on_off(v: &str) -> Result<bool, String> {
+    match v {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(format!("expected on or off, got {v:?}")),
     }
 }
 

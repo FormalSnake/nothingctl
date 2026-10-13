@@ -19,7 +19,7 @@ pub mod test_util {
 mod golden {
     use super::action::Action;
     use super::frame::{Command, OpCounter, crc16, encode, hex};
-    use super::model::B175;
+    use super::model::{B175, B189, B190, B192, Model};
     use super::test_util::unhex;
 
     const DOC: &str = include_str!("../../docs/protocol.md");
@@ -41,15 +41,17 @@ mod golden {
 
     #[test]
     fn doc_has_the_frames() {
-        // 13 connect, 14 reads, 6 anc, 7 eq, 2 custom eq, 2 latency, 25 gesture,
-        // 3 spatial, 2 personal sound, 8 risky, and the 3 quoted in the CRC note.
-        assert_eq!(doc_frames().len(), 85);
+        // B175: 13 connect, 14 reads, 6 anc, 7 eq, 2 custom eq, 2 latency,
+        // 25 gesture, 3 spatial, 2 personal sound, 8 risky, and the 3 quoted in
+        // the CRC note. Section 7: 9 reads, 11 writes, 2 custom eq, 3 risky.
+        // B189: 15 connect, 6 writes. B190: 13 connect. B192: 5 connect.
+        assert_eq!(doc_frames().len(), 85 + 25 + 21 + 13 + 5);
     }
 
     /// Every frame in the doc has a matching length byte and CRC. Frames for
     /// a `Command` this tool has are rebuilt through `encode` and must match
-    /// byte for byte. The rest (UTC, gestures, personal sound set, the risky
-    /// writes) have no `Command`, so they cannot be built at all.
+    /// byte for byte. The rest (UTC, gestures, the risky writes) have no
+    /// `Command`, so they cannot be built at all.
     #[test]
     fn every_doc_frame() {
         let mut rebuilt = 0;
@@ -65,13 +67,24 @@ mod golden {
                 rebuilt += 1;
             }
         }
-        assert_eq!(rebuilt, 85 - 36, "all but UTC, 25 gestures, 2 personal sound, 8 risky");
+        assert_eq!(rebuilt, 149 - 39, "all but 3 UTC, 25 gestures, 11 risky");
     }
 
+    /// The first frame of a B175 action at op 01.
     fn one(action: Action) -> String {
-        let frames = action.frames(&B175).expect("valid for B175");
-        let (cmd, payload) = &frames[0];
-        hex(&encode(*cmd, 0x01, payload))
+        all_for(&B175, action).swap_remove(0)
+    }
+
+    fn one_for(model: &Model, action: Action) -> String {
+        let frames = all_for(model, action);
+        assert_eq!(frames.len(), 1);
+        frames[0].clone()
+    }
+
+    /// Every frame of an action, each at op 01 like the doc tables.
+    fn all_for(model: &Model, action: Action) -> Vec<String> {
+        let frames = action.frames(model).unwrap_or_else(|e| panic!("valid for {}: {e}", model.base));
+        frames.iter().map(|(c, p)| hex(&encode(*c, 0x01, p))).collect()
     }
 
     fn act(s: &str) -> Action {
@@ -171,44 +184,250 @@ mod golden {
         }
     }
 
-    /// The connect sequence minus the UTC write, so every frame after the
-    /// firmware read is the doc's frame with an op id one lower.
-    #[test]
-    fn connect_sequence() {
+    /// A doc frame with its op id byte replaced and the CRC recomputed.
+    fn reop(doc: &str, op: u8) -> String {
+        let mut b = unhex(doc);
+        let n = b.len();
+        b[7] = op;
+        let crc = crc16(&b[..n - 2]).to_le_bytes();
+        b[n - 2..].copy_from_slice(&crc);
+        hex(&b)
+    }
+
+    fn planned(model: &Model) -> Vec<String> {
         let mut ops = OpCounter::default();
-        let sent: Vec<String> = B175
+        model
             .connect_reads
             .iter()
             .map(|s| (s.cmd, s.payload))
-            .chain(B175.config_reads.iter().copied())
+            .chain(model.config_reads.iter().copied())
             .map(|(c, p)| hex(&encode(c, ops.next(), p)))
-            .collect();
-        let expected: Vec<String> = [
-            (0x01, "55600107c0000001acdf"),
-            (0x02, "55600150c00000029912"),
-            (0x03, "55600142c0000003e0d1"),
-            (0x04, "55600141c000000524d3"),
-            (0x05, "55600118c000000678df"),
-            (0x06, "5560011ec0000007311f"),
-            (0x07, "5560014cc0000008c8d7"),
-            (0x08, "55600127c00000092cde"),
-            (0x09, "55600128c001000a00de2e"),
-            (0x0a, "55600129c000000bc4de"),
-            (0x0b, "5560014fc000000c8d14"),
-            (0x0c, "5560015ac000000d4117"),
-        ]
-        .into_iter()
-        .map(|(op, doc)| {
-            let mut b = unhex(doc);
-            let n = b.len();
-            b[7] = op;
-            let crc = crc16(&b[..n - 2]).to_le_bytes();
-            b[n - 2..].copy_from_slice(&crc);
-            hex(&b)
-        })
-        .collect();
+            .collect()
+    }
+
+    /// The doc's connect sequence minus the UTC write (op 04), so every frame
+    /// after the firmware read is the doc's frame with an op id one lower.
+    fn doc_sequence_without_utc(doc: &[&str]) -> Vec<String> {
+        assert!(doc[3].starts_with("5560010af0"), "op 04 is the UTC write");
+        doc.iter().enumerate().filter(|(i, _)| *i != 3).enumerate().map(|(op, (_, f))| reop(f, op as u8 + 1)).collect()
+    }
+
+    #[test]
+    fn connect_sequence() {
+        let sent = planned(&B175);
+        let expected = doc_sequence_without_utc(&[
+            "55600107c0000001acdf",
+            "55600150c00000029912",
+            "55600142c0000003e0d1",
+            "5560010af00400046abc51002342",
+            "55600141c000000524d3",
+            "55600118c000000678df",
+            "5560011ec0000007311f",
+            "5560014cc0000008c8d7",
+            "55600127c00000092cde",
+            "55600128c001000a00de2e",
+            "55600129c000000bc4de",
+            "5560014fc000000c8d14",
+            "5560015ac000000d4117",
+        ]);
         assert_eq!(sent[..3], expected[..3], "first three are the doc's frames untouched");
         assert_eq!(sent, expected);
+    }
+
+    #[test]
+    fn connect_sequence_b189() {
+        assert_eq!(
+            planned(&B189),
+            doc_sequence_without_utc(&[
+                "55600107c0000001acdf",
+                "55600150c00000029912",
+                "55600142c0000003e0d1",
+                "5560010af00400046abc51002342",
+                "55600141c000000524d3",
+                "55600118c000000678df",
+                "5560011ec0000007311f",
+                "5560014cc0000008c8d7",
+                "5560014ec000000970d7",
+                "55600127c000000a6cdf",
+                "55600128c001000b00dfbe",
+                "55600129c000000c851c",
+                "5560014fc000000d4cd4",
+                "55600167c000000e6cd3",
+                "55600171c000000fe4d0",
+            ])
+        );
+    }
+
+    const B190_TIMED: [&str; 9] = [
+        "55600107c0000001acdf",
+        "5560011fc0000002ccdc",
+        "55600142c0000003e0d1",
+        "5560010af00400046abc51002342",
+        "5560010ec0000005711d",
+        "55600141c000000664d2",
+        "55600118c0000007b91f",
+        "5560011ec0000008711b",
+        "5560014cc00000090917",
+    ];
+
+    #[test]
+    fn connect_sequence_b190() {
+        let mut doc = B190_TIMED.to_vec();
+        doc.extend(["55600127c000000a6cdf", "55600128c001000b00dfbe", "55600129c000000c851c", "5560014fc000000d4cd4"]);
+        assert_eq!(planned(&B190), doc_sequence_without_utc(&doc));
+    }
+
+    #[test]
+    fn connect_sequence_b192() {
+        let mut doc = B190_TIMED.to_vec();
+        doc.extend([
+            "55600127c000000a6cdf",
+            "55600128c001000b00dfbe",
+            "55600129c000000c851c",
+            "5560015ac000000d4117",
+            "55600168c000000e38d2",
+        ]);
+        assert_eq!(planned(&B192), doc_sequence_without_utc(&doc));
+    }
+
+    #[test]
+    fn new_reads_at_op_01() {
+        for (cmd, payload, f) in [
+            (Command::EqRead, &[][..], "5560011fc00000018cdd"),
+            (Command::AdvancedEqValueRead, &[0xFF], "5560014dc0010001ff90ab"),
+            (Command::DriverEqModeRead, &[], "5560016cc00000018916"),
+            (Command::DriverEqValueRead, &[0xFF], "5560016dc0010001ff97cb"),
+            (Command::InEarRead, &[], "5560010ec000000170de"),
+            (Command::BassRead, &[], "5560014ec00000017111"),
+            (Command::LongBatteryRead, &[], "55600167c00000012cd7"),
+            (Command::LeakageRead, &[], "55600171c00000016514"),
+            (Command::FlatEqRead, &[], "55600168c000000178d6"),
+        ] {
+            assert_eq!(hex(&encode(cmd, 0x01, payload)), f, "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn personal_sound_set() {
+        for model in [&B175, &B192] {
+            assert_eq!(one_for(model, act("personal-sound on")), "5560015cf001000101526e");
+            assert_eq!(one_for(model, act("personal-sound off")), "5560015cf00100010093ae");
+        }
+        assert!(act("personal-sound on").frames(&B189).is_err());
+        assert!(act("personal-sound on").frames(&B190).is_err());
+    }
+
+    #[test]
+    fn earbud_eq_presets() {
+        const ADVANCED_OFF: &str = "5560014ff0020001000088ac";
+        for model in [&B190, &B192] {
+            for (p, f) in [
+                ("balanced", "55600110f0020001000027a9"),
+                ("voice", "55600110f002000101002639"),
+                ("treble", "55600110f0020001020026c9"),
+                ("bass", "55600110f002000103002759"),
+            ] {
+                assert_eq!(all_for(model, act(&format!("eq {p}"))), [ADVANCED_OFF, f], "{} {p}", model.base);
+            }
+            assert_eq!(
+                all_for(model, act("eq custom")),
+                [ADVANCED_OFF, "55600110f0020001050024f9", "55600144c0000001e910", "55600144c0000001e910"],
+            );
+        }
+        assert_eq!(all_for(&B192, act("eq detail")), [ADVANCED_OFF, "55600110f002000107002599"]);
+        assert!(act("eq detail").frames(&B190).is_err());
+        assert!(act("eq rock").frames(&B190).is_err());
+    }
+
+    #[test]
+    fn advanced_eq() {
+        const ON: &str = "5560014ff00200010100893c";
+        assert_eq!(all_for(&B190, act("eq advanced")), [ON, "5560014dc0010001ff90ab"]);
+        assert_eq!(
+            all_for(&B192, act("eq advanced")),
+            [ON, "5560014dc0010001ff90ab", "5560016cc00000018916", "5560016dc0010001ff97cb"]
+        );
+        assert!(act("eq advanced").frames(&B175).is_err());
+        assert!(act("eq advanced").frames(&B189).is_err());
+    }
+
+    #[test]
+    fn b189_eq_matches_b175_values() {
+        for (p, f) in [
+            ("rock", "5560011df00200010100faf9"),
+            ("electronic", "5560011df00200010200fa09"),
+            ("pop", "5560011df00200010300fb99"),
+            ("vocals", "5560011df00200010400f9a9"),
+            ("classical", "5560011df00200010500f839"),
+        ] {
+            assert_eq!(one_for(&B189, act(&format!("eq {p}"))), f, "{p}");
+        }
+        assert_eq!(all_for(&B189, act("eq custom")).len(), 3);
+        assert!(act("eq dirac").frames(&B189).is_err());
+    }
+
+    #[test]
+    fn custom_eq_by_model() {
+        let plus3 = "55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2";
+        let flat = "55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5";
+        for model in [&B189, &B190] {
+            assert_eq!(one_for(model, act("eq-custom 3 0 -3")), plus3, "{}", model.base);
+            assert_eq!(one_for(model, act("eq-custom 0 0 0")), flat, "{}", model.base);
+        }
+        assert_eq!(one_for(&B192, act("eq-custom 3 0 -3")), one(act("eq-custom 3 0 -3")), "B192 bands equal B175");
+    }
+
+    #[test]
+    fn anc_on_new_models() {
+        for model in [&B190, &B192] {
+            assert_eq!(one_for(model, act("anc high")), "5560010ff0030001010100f9d7");
+            assert_eq!(one_for(model, act("anc adaptive")), "5560010ff0030001010400fa87");
+        }
+        assert!(act("anc off").frames(&B189).is_err());
+    }
+
+    #[test]
+    fn in_ear_set() {
+        for model in [&B190, &B192] {
+            assert_eq!(one_for(model, act("in-ear off")), "55600104f0030001010100b864");
+            assert_eq!(one_for(model, act("in-ear on")), "55600104f003000101010179a4");
+        }
+        assert!(act("in-ear on").frames(&B175).is_err());
+        assert!(act("in-ear on").frames(&B189).is_err());
+    }
+
+    #[test]
+    fn bass_set() {
+        assert_eq!(one_for(&B189, act("bass 0")), "55600151f0020001000076ad");
+        assert_eq!(one_for(&B189, act("bass 1")), "55600151f00200010105b73e");
+        assert_eq!(one_for(&B189, act("bass 2")), "55600151f0020001010af73a");
+        assert!(act("bass 3").frames(&B189).is_err());
+        assert!(act("bass 1").frames(&B190).is_err());
+    }
+
+    #[test]
+    fn leakage_set() {
+        assert_eq!(one_for(&B189, act("leakage off")), "55600175f0010001009457");
+        assert_eq!(one_for(&B189, act("leakage calls")), "55600175f0010001015597");
+        assert_eq!(one_for(&B189, act("leakage all")), "55600175f0010001021596");
+        assert!(act("leakage calls").frames(&B192).is_err());
+    }
+
+    #[test]
+    fn spatial_fixed() {
+        for model in [&B189, &B190] {
+            assert_eq!(one_for(model, act("spatial fixed")), "55600152f00200010100443d");
+            assert_eq!(one_for(model, act("spatial off")), "55600152f0020001000045ad");
+            assert!(act("spatial concert").frames(model).is_err());
+        }
+        assert!(act("spatial off").frames(&B192).is_err());
+    }
+
+    #[test]
+    fn latency_on_every_model() {
+        for model in super::model::MODELS {
+            assert_eq!(one_for(model, act("low-latency on")), "55600140f00200010100763c");
+        }
     }
 
     #[test]
@@ -228,7 +447,7 @@ mod golden {
 #[cfg(test)]
 mod decode {
     use super::frame::crc16;
-    use super::model::B175;
+    use super::model::{B175, B189, B190, B192, Model};
     use super::parser::Parser;
     use super::state::{State, snapshot};
 
@@ -244,8 +463,16 @@ mod decode {
     }
 
     fn feed(state: &mut State, wire: &[u8]) -> bool {
+        feed_for(&B175, state, wire)
+    }
+
+    fn feed_for(model: &Model, state: &mut State, wire: &[u8]) -> bool {
         let mut p = Parser::default();
-        p.push(wire).iter().fold(false, |c, f| state.apply(&B175, f) | c)
+        p.push(wire).iter().fold(false, |c, f| state.apply(model, f) | c)
+    }
+
+    fn json(model: &Model, s: &State) -> serde_json::Value {
+        serde_json::to_value(snapshot(model, s, "AA", "n")).unwrap()
     }
 
     #[test]
@@ -345,5 +572,106 @@ mod decode {
         let mut s = State::default();
         feed(&mut s, &wire);
         assert_eq!(s.anc_code, Some(0x04));
+    }
+
+    #[test]
+    fn earbud_battery() {
+        let mut s = State::default();
+        feed_for(&B190, &mut s, &reply(0x4007, &[0x03, 0x02, 40, 0x03, 0x80 | 41, 0x04, 90]));
+        let ids: Vec<_> = json(&B190, &s)["battery"].as_array().unwrap().iter().map(|b| b["id"].clone()).collect();
+        assert_eq!(ids, ["left", "right", "case"]);
+        assert_eq!(json(&B190, &s)["battery"][1]["charging"], true);
+    }
+
+    #[test]
+    fn anc_push_alt_id() {
+        let mut s = State::default();
+        feed_for(&B192, &mut s, &reply(0x6003, &[0x01, 0x07]));
+        assert_eq!(json(&B192, &s)["anc"]["mode"], "transparency");
+        let mut s = State::default();
+        feed_for(&B189, &mut s, &reply(0x401E, &[0x01, 0x07]));
+        assert_eq!(s.anc_code, None, "B189 has no ANC");
+        assert_eq!(json(&B189, &s)["anc"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn earbud_eq_reply_and_advanced_status() {
+        let mut s = State::default();
+        feed_for(&B190, &mut s, &reply(0x401F, &[0x03]));
+        assert_eq!(json(&B190, &s)["eq"]["preset"], "bass");
+        feed_for(&B190, &mut s, &reply(0x404C, &[0x01]));
+        assert_eq!(json(&B190, &s)["eq"]["preset"], "bass", "B190 ignores the status");
+        feed_for(&B192, &mut s, &reply(0x404C, &[0x01]));
+        assert_eq!(json(&B192, &s)["eq"]["preset"], "advanced");
+        feed_for(&B192, &mut s, &reply(0x401F, &[0x07]));
+        assert_eq!(json(&B192, &s)["eq"]["preset"], "detail");
+        feed_for(&B192, &mut s, &reply(0x404C, &[0x00]));
+        assert_eq!(json(&B192, &s)["eq"]["preset"], "detail", "status 0 changes nothing");
+        feed_for(&B190, &mut s, &reply(0x4050, &[0x01]));
+        assert_eq!(s.eq_preset, Some(7), "B190 ignores the listening mode reply");
+    }
+
+    #[test]
+    fn in_ear_reply() {
+        let mut s = State::default();
+        feed_for(&B190, &mut s, &reply(0x400E, &[0x01, 0x01, 0x01]));
+        assert_eq!(json(&B190, &s)["inEar"], true);
+        feed_for(&B190, &mut s, &reply(0x400E, &[0x01, 0x01, 0x00]));
+        assert_eq!(json(&B190, &s)["inEar"], false);
+        let mut s = State::default();
+        feed(&mut s, &reply(0x400E, &[0x01, 0x01, 0x01]));
+        assert_eq!(s.in_ear, None, "B175 has no in-ear detection");
+    }
+
+    #[test]
+    fn bass_reply() {
+        let mut s = State::default();
+        feed_for(&B189, &mut s, &reply(0x404E, &[0x00, 0x05]));
+        assert_eq!(json(&B189, &s)["bass"], serde_json::json!({"enabled": false, "level": 1, "levels": 3}));
+        feed_for(&B189, &mut s, &reply(0x404E, &[0x01, 0x07]));
+        assert_eq!(json(&B189, &s)["bass"]["level"], serde_json::Value::Null);
+        assert_eq!(json(&B190, &s)["bass"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn personal_sound_reply_and_pushes() {
+        let mut s = State::default();
+        feed_for(&B192, &mut s, &reply(0x405A, &[0x01]));
+        assert_eq!(json(&B192, &s)["personalSound"], true);
+        feed_for(&B192, &mut s, &reply(0xE019, &[0x00]));
+        assert_eq!(s.personal_sound, Some(false));
+        feed(&mut s, &reply(0x6019, &[0x01]));
+        assert_eq!(json(&B175, &s)["personalSound"], true);
+    }
+
+    #[test]
+    fn leakage_long_battery_flat_eq() {
+        let mut s = State::default();
+        feed_for(&B189, &mut s, &reply(0x4071, &[0x02]));
+        feed_for(&B189, &mut s, &reply(0x4067, &[0x01]));
+        let j = json(&B189, &s);
+        assert_eq!(j["leakage"]["mode"], "all");
+        assert_eq!(j["leakage"]["available"], serde_json::json!(["off", "calls", "all"]));
+        assert_eq!(j["longBatteryMode"], true);
+        assert_eq!(j["flatEq"], serde_json::Value::Null);
+        for id in [0x4068u16, 0xE01C, 0x601C] {
+            let mut s = State::default();
+            feed_for(&B192, &mut s, &reply(id, &[0x01]));
+            assert_eq!(json(&B192, &s)["flatEq"], true, "{id:04x}");
+        }
+    }
+
+    #[test]
+    fn spatial_by_mode_byte_on_b189() {
+        let mut s = State::default();
+        feed_for(&B189, &mut s, &reply(0x404F, &[0x01, 213]));
+        assert_eq!(json(&B189, &s)["spatial"]["mode"], "fixed");
+        feed_for(&B189, &mut s, &reply(0x404F, &[0x03, 20]));
+        assert_eq!(json(&B189, &s)["spatial"]["mode"], "off");
+        feed_for(&B190, &mut s, &reply(0x404F, &[0x01, 0x00]));
+        assert_eq!(json(&B190, &s)["spatial"]["mode"], "fixed");
+        feed_for(&B190, &mut s, &reply(0x404F, &[0x01, 0x01]));
+        assert_eq!(json(&B190, &s)["spatial"]["mode"], serde_json::Value::Null, "head tracked is not offered");
+        assert_eq!(json(&B192, &s)["spatial"], serde_json::Value::Null);
     }
 }

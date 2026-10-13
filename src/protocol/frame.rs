@@ -1,12 +1,12 @@
 //! Outbound frames. `encode` is the only function that produces bytes for the
 //! wire, and it only accepts a `Command`, so a frame for anything outside that
-//! enum (firmware, reset, rename, pairing, codec, dual connect writes, ring)
-//! cannot be built.
+//! enum (firmware, reset, rename, pairing, codec, dual connect writes, long
+//! battery mode, ring) cannot be built.
 
 pub const START: u8 = 0x55;
 
-/// Every command this tool can send. Each one is a frame ear-web sends to a
-/// B175, see docs/protocol.md section 4.
+/// Every command this tool can send. Each one is a frame ear-web sends to at
+/// least one model with a table here, see docs/protocol.md.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     BatteryRead,
@@ -22,16 +22,31 @@ pub enum Command {
     CodecRead,
     DualEnabledRead,
     DualListRead,
+    EqRead,
+    AdvancedEqValueRead,
+    DriverEqModeRead,
+    DriverEqValueRead,
+    InEarRead,
+    BassRead,
+    LongBatteryRead,
+    LeakageRead,
+    FlatEqRead,
     AncSet,
     ListeningModeSet,
     CustomEqSet,
     LatencySet,
     SpatialSet,
+    EqSet,
+    AdvancedEqSet,
+    InEarSet,
+    BassSet,
+    PersonalSoundSet,
+    LeakageSet,
 }
 
 impl Command {
     #[cfg(test)]
-    pub const ALL: [Command; 18] = [
+    pub const ALL: [Command; 33] = [
         Command::BatteryRead,
         Command::FirmwareRead,
         Command::AncRead,
@@ -45,11 +60,26 @@ impl Command {
         Command::CodecRead,
         Command::DualEnabledRead,
         Command::DualListRead,
+        Command::EqRead,
+        Command::AdvancedEqValueRead,
+        Command::DriverEqModeRead,
+        Command::DriverEqValueRead,
+        Command::InEarRead,
+        Command::BassRead,
+        Command::LongBatteryRead,
+        Command::LeakageRead,
+        Command::FlatEqRead,
         Command::AncSet,
         Command::ListeningModeSet,
         Command::CustomEqSet,
         Command::LatencySet,
         Command::SpatialSet,
+        Command::EqSet,
+        Command::AdvancedEqSet,
+        Command::InEarSet,
+        Command::BassSet,
+        Command::PersonalSoundSet,
+        Command::LeakageSet,
     ];
 
     pub const fn id(self) -> u16 {
@@ -67,11 +97,26 @@ impl Command {
             Command::CodecRead => 0xC029,
             Command::DualEnabledRead => 0xC027,
             Command::DualListRead => 0xC028,
+            Command::EqRead => 0xC01F,
+            Command::AdvancedEqValueRead => 0xC04D,
+            Command::DriverEqModeRead => 0xC06C,
+            Command::DriverEqValueRead => 0xC06D,
+            Command::InEarRead => 0xC00E,
+            Command::BassRead => 0xC04E,
+            Command::LongBatteryRead => 0xC067,
+            Command::LeakageRead => 0xC071,
+            Command::FlatEqRead => 0xC068,
             Command::AncSet => 0xF00F,
             Command::ListeningModeSet => 0xF01D,
             Command::CustomEqSet => 0xF041,
             Command::LatencySet => 0xF040,
             Command::SpatialSet => 0xF052,
+            Command::EqSet => 0xF010,
+            Command::AdvancedEqSet => 0xF04F,
+            Command::InEarSet => 0xF004,
+            Command::BassSet => 0xF051,
+            Command::PersonalSoundSet => 0xF05C,
+            Command::LeakageSet => 0xF075,
         }
     }
 
@@ -95,11 +140,26 @@ impl Command {
             Command::CodecRead => "codec read",
             Command::DualEnabledRead => "dual connection enabled read",
             Command::DualListRead => "dual connection list read",
+            Command::EqRead => "eq read",
+            Command::AdvancedEqValueRead => "advanced eq bands read",
+            Command::DriverEqModeRead => "precision driver eq mode read",
+            Command::DriverEqValueRead => "precision driver eq bands read",
+            Command::InEarRead => "in-ear detection read",
+            Command::BassRead => "bass enhance read",
+            Command::LongBatteryRead => "long battery mode read",
+            Command::LeakageRead => "anti-leakage read",
+            Command::FlatEqRead => "flat eq read",
             Command::AncSet => "anc set",
             Command::ListeningModeSet => "eq preset set",
             Command::CustomEqSet => "custom eq set",
             Command::LatencySet => "low latency set",
             Command::SpatialSet => "spatial set",
+            Command::EqSet => "eq preset set",
+            Command::AdvancedEqSet => "advanced eq switch",
+            Command::InEarSet => "in-ear detection set",
+            Command::BassSet => "bass enhance set",
+            Command::PersonalSoundSet => "personal sound set",
+            Command::LeakageSet => "anti-leakage set",
         }
     }
 }

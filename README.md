@@ -13,6 +13,9 @@ line on every change, for status bars and desktop shells.
 | Device | Model | Status |
 |---|---|---|
 | CMF Headphone Pro | B175 | yes |
+| CMF Clip Pro | B189 | yes |
+| Nothing Ear (3a) | B190 | yes |
+| Nothing Headphone (1) Pro | B192 | yes |
 | Other Nothing and CMF models ear-web supports | | planned |
 
 A device connects only when its model has a verified table. Anything else is
@@ -20,15 +23,36 @@ refused after the model id is read, with nothing sent to it.
 
 ## Features
 
-| | B175 |
+| | B175 | B189 | B190 | B192 |
+|---|---|---|---|---|
+| Battery, charging | read, live | read, live | read, live | read, live |
+| Noise control: off, transparency, high, mid, low, adaptive | read, live, set | | read, live, set | read, live, set |
+| EQ presets | read, set | read, set | read, set | read, set |
+| Custom EQ: bass, mid, treble, -6 to +6 | read, set | read, set | read, set | read, set |
+| Low latency | read, set | read, set | read, set | read, set |
+| Spatial audio | read, set | read, set | read, set | |
+| In-ear detection | | | read, set | read, set |
+| Bass enhance, levels 0 to 2 | | read, set | | |
+| Personal sound | read, live, set | | | read, live, set |
+| Anti-leakage: off, calls, all | | read, set | | |
+| Long battery mode | | read | | |
+| Flat EQ (earcup slider) | | | | read, live |
+| Firmware version | read | read | read | read |
+
+EQ presets per model:
+
+| Model | Presets |
 |---|---|
-| Battery, charging | read, live |
-| Noise control: off, transparency, high, mid, low, adaptive | read, live, set |
-| EQ presets: rock, electronic, pop, vocals, classical, custom | read, set |
-| Custom EQ: bass, mid, treble, -6 to +6 | read, set |
-| Low latency | read, set |
-| Spatial audio: off, concert, theatre | read, set |
-| Firmware version | read |
+| B175 | rock, electronic, pop, vocals, classical, custom |
+| B189 | rock, electronic, pop, vocals, classical, custom |
+| B190 | balanced, voice, treble, bass, custom, advanced |
+| B192 | balanced, voice, treble, bass, custom, advanced, detail |
+
+Spatial audio is off, concert or theatre on B175, and off or fixed on B189
+and B190. B192's spatial audio runs through an SDK ear-web cannot use, so it
+is not offered. `advanced` switches to the parametric EQ set up in the
+Nothing X app; its bands are not edited here. Long battery mode is read only
+because switching it reboots the device.
 
 ## Install
 
@@ -75,6 +99,10 @@ nothingctl set eq rock
 nothingctl set eq-custom 3 0 -2       # bass mid treble
 nothingctl set low-latency on
 nothingctl set spatial concert
+nothingctl set in-ear off
+nothingctl set bass 2                 # 0 is off
+nothingctl set personal-sound on
+nothingctl set leakage calls
 nothingctl watch                      # JSON lines until the link drops
 ```
 
@@ -103,7 +131,13 @@ Snapshot:
   "anc": { "mode": "high", "available": ["off", "transparency", "high", "mid", "low", "adaptive"] },
   "eq": { "preset": "custom", "available": ["rock", "electronic", "pop", "vocals", "classical", "custom"], "custom": [3.0, 0.0, -2.0] },
   "lowLatency": false,
-  "spatial": { "mode": "off", "available": ["off", "concert", "theatre"] }
+  "spatial": { "mode": "off", "available": ["off", "concert", "theatre"] },
+  "inEar": null,
+  "bass": null,
+  "personalSound": true,
+  "leakage": null,
+  "longBatteryMode": null,
+  "flatEq": null
 }
 ```
 
@@ -111,7 +145,9 @@ Snapshot:
 `single`. A feature the model lacks is `null`, and so is a value the device has
 not reported yet. `eq.preset` can read `dirac` (Dirac Opteo), which ear-web
 decodes but does not offer, so it is not in `available`. `eq.custom` is
-`[bass, mid, treble]`, read when the custom preset is active.
+`[bass, mid, treble]`, read when the custom preset is active. `bass` is
+`{"enabled": true, "level": 1, "levels": 3}`: the device can report a level
+while disabled.
 
 ## Exit codes
 
@@ -135,8 +171,8 @@ decodes but does not offer, so it is not in `available`. `eq.custom` is
   byte for byte. The tests rebuild every frame in
   [docs/protocol.md](docs/protocol.md) and compare.
 - There are no commands for firmware updates, factory reset, renaming,
-  pairing, codec switching, dual connection changes or ring. The encoder
-  cannot build those frames.
+  pairing, codec switching, dual connection changes, long battery mode or
+  ring. The encoder cannot build those frames.
 - `--dry-run` prints the frames a command would send, in hex, without
   connecting:
 

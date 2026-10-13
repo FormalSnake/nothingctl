@@ -1,6 +1,10 @@
-# Nothing protocol facts: CMF Headphone Pro (B175)
+# Nothing protocol facts
 
-Extracted 2026-09-30 from the live ear-web site (earweb.bttl.xyz) page
+Sections 1 to 6 cover the CMF Headphone Pro (B175) and the transport every
+model shares. Sections 7 to 10 cover the CMF Clip Pro (B189), Nothing Ear
+(3a) (B190) and Nothing Headphone (1) Pro (B192).
+
+B175 was extracted 2026-09-30 from the live ear-web site (earweb.bttl.xyz) page
 `MainControl_forretress` and the scripts it loads: `bluetooth_socket.js`,
 `device_common.js`, `gestures_common.js`, `eq_common.js`, `eq_espeon.js`,
 `control.js`, `forretress.js`, `dual_connect.js`, `audio_codec.js`,
@@ -469,3 +473,242 @@ Flat, all gains 0 (total gain -0.0):
   `06 01` is only used for B170, B164 and B186, and B175 is not in that list even
   though its config says `deviceType: 6` and `findDevice: 1`. Which form B175
   accepts cannot be settled from ear-web.
+
+## 7. ear-web changes since the B175 extraction
+
+Extracted 2026-10-13 from the ear-web repository
+(github.com/radiance-project/ear-web) at `d076e13` (2026-10-07). Every script
+and the config file are byte-identical to what earweb.bttl.xyz served that
+day; the HTML pages differ only by the Cloudflare challenge snippet. The B175
+extraction matches `4bcaa8a` (2026-08-20). ear-web's code was read, never run.
+Golden frames in sections 8 to 10 were built with an independent Python
+encoder (the one that reproduced section 5) and rebuilt by the tests.
+
+What changed for B175: nothing on the wire. Its config entry, its page and
+`forretress.js` are unchanged, and none of the new config-driven reads apply
+to it (it has no `supportStudio`, `useAudiodoSpatial`, `longPowerMode` or
+`supportLeakageProtection`). Shared changes that matter to a client:
+
+- `0x6003` is now handled exactly like the `0xE003` ANC push, and `0x6019`
+  like the `0xE019` Audiodo push.
+- After the firmware reply the config-driven reads go out in this order, each
+  only when its config flag is set: dual connection (`0xC027`, `0xC028 00`),
+  codec (`0xC029`), spatial audio (`0xC04F`, skipped when `useAudiodoSpatial`
+  is set), personal sound (`0xC022` Mimi or `0xC05A` Audiodo), super mic
+  (`0xC05E`, `0xC064`), call transparency (`0xC05F`), walkie-talkie
+  (`0xC060`), long battery mode (`0xC067`), anti-leakage (`0xC071`), flat EQ
+  (`0xC068`).
+
+Commands the new models use, beyond section 4:
+
+| Feature | Send id | Payload | Reply / push id and decoding | Tag |
+|---|---|---|---|---|
+| EQ preset read (earbud EQ) | `0xC01F` | none | `0x401F`. Byte 8 = preset. | safe read |
+| EQ preset set (earbud EQ) | `0xF010` | `<preset> 00` | none handled | setting write |
+| Advanced EQ switch | `0xF04F` | `01 00` on, `00 00` off | none handled | setting write |
+| Advanced EQ bands read | `0xC04D` | `FF` (current profile) | `0x404D`, bands; not used here | safe read |
+| Precision driver EQ mode read | `0xC06C` | none | `0x406C`. Byte 8 = 1 enabled. If 0, ear-web writes `0xF06C 01` once. | safe read |
+| Precision driver EQ bands read | `0xC06D` | `FF` | `0x406D`, bands; not used here | safe read |
+| In-ear detection read | `0xC00E` | none | `0x400E`. Byte 10 = 1 on, anything else off. | safe read |
+| In-ear detection set | `0xF004` | `01 01 01` on, `01 01 00` off | none handled | setting write |
+| Bass enhance read | `0xC04E` | none | `0x404E`. Byte 8 = 1 enabled, byte 9 = wire level. | safe read |
+| Bass enhance set | `0xF051` | `<enabled> <wire level>` | none handled | setting write |
+| Long battery mode read | `0xC067` | none | `0x4067`. Byte 8 = 1 on. | safe read |
+| Long battery mode set | `0xF068` | `01` on, `00` off | the device reboots (ear-web expects the drop, section 1) | **risky** (reboots device) |
+| Anti-leakage read | `0xC071` | none | `0x4071`. Byte 8 = mode: 0 off, 1 calls only, 2 audio and calls. | safe read |
+| Anti-leakage set | `0xF075` | `<mode>` | none handled | setting write |
+| Flat EQ read | `0xC068` | none | `0x4068` reply, `0xE01C` and `0x601C` pushes. Byte 8 = 1 on. | safe read |
+
+Flat EQ is switched by a slider on the B192 earcup. While it is on, ear-web
+blocks transparency, spatial audio and the EQ page in its UI; it sends no
+frame for it.
+
+Reads, op 01:
+
+| Command | Frame |
+|---|---|
+| EQ preset `0xC01F` | `5560011fc00000018cdd` |
+| advanced EQ bands `0xC04D FF` | `5560014dc0010001ff90ab` |
+| precision driver EQ mode `0xC06C` | `5560016cc00000018916` |
+| precision driver EQ bands `0xC06D FF` | `5560016dc0010001ff97cb` |
+| in-ear `0xC00E` | `5560010ec000000170de` |
+| bass enhance `0xC04E` | `5560014ec00000017111` |
+| long battery mode `0xC067` | `55600167c00000012cd7` |
+| anti-leakage `0xC071` | `55600171c00000016514` |
+| flat EQ `0xC068` | `55600168c000000178d6` |
+
+Writes shared by the new models, op 01 (ANC and low latency use the section 5
+frames unchanged):
+
+| Command | Frame |
+|---|---|
+| EQ preset 0 `0xF010 00 00` | `55600110f0020001000027a9` |
+| EQ preset 1 | `55600110f002000101002639` |
+| EQ preset 2 | `55600110f0020001020026c9` |
+| EQ preset 3 | `55600110f002000103002759` |
+| EQ preset 5 | `55600110f0020001050024f9` |
+| EQ preset 7 | `55600110f002000107002599` |
+| advanced EQ off `0xF04F 00 00` | `5560014ff0020001000088ac` |
+| advanced EQ on `0xF04F 01 00` | `5560014ff00200010100893c` |
+| in-ear off `0xF004 01 01 00` | `55600104f0030001010100b864` |
+| in-ear on `0xF004 01 01 01` | `55600104f003000101010179a4` |
+| spatial Fixed `0xF052 01 00` | `55600152f00200010100443d` |
+
+Custom EQ with the high shelf at 3400 Hz (B189, B190), same layout as section
+4. Bass +3, mid 0, treble -3:
+
+`55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2`
+
+Flat:
+
+`55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5`
+
+Risky, op 01 (listed for recognition, not for sending):
+
+| Command | Frame |
+|---|---|
+| long battery mode off `0xF068 00` (reboots) | `55600168f00100010097da` |
+| long battery mode on `0xF068 01` (reboots) | `55600168f001000101561a` |
+| ring headphone form `0xF002 06 01` (B192) | `55600102f00200010601d7c8` |
+
+## 8. CMF Clip Pro (B189)
+
+Page `MainControl_igglybuff`, scripts as section 1 plus `igglybuff.js`,
+`eq_igglybuff.js`, `smart_dial.js`, `anti_leakage.js`. Model ids `8F28ED`
+(blue), `E6673A` (orange), `DCD2CB` (white), `DA1280` (black). Open earbuds
+with a case, single config: no `ancLevel`, `earDetection` 0, `ultraBass` 1
+(`ultraBassType` 3), `advancedEq` 0, `spatialAudio` 6, `highQualityAudio` 4,
+`dualConnection` 1, `longPowerMode` 1, `supportLeakageProtection` 1, custom EQ
+low shelf 140 Hz Q 0.8, peak 980 Hz Q 0.7, high shelf 3400 Hz Q 1.0.
+
+- **Battery**: ids 2 left, 3 right, 4 case.
+- **No ANC page**, but ear-web still sends the `0xC01E` read at +900 ms. Its
+  reply is not shown.
+- **EQ** uses the listening-mode commands, as B175, and the same values: 1
+  rock, 2 electronic, 3 pop, 4 enhance vocals, 5 classical, 6 custom. There is
+  no Dirac Opteo: a read of 0 has no button and the page's handler throws.
+  Choosing custom sends `0xF01D 06 00` then `0xC044` twice, as B175. ear-web
+  refuses EQ changes while long battery mode is on or anti-leakage is on
+  audio and calls (UI checks, no frame).
+- **Bass enhance** has three levels, wire values 0, 5, 10. Picking a level
+  sends `<enabled> <wire>` with enabled = level is not 0, so level 0 is `00 00`,
+  1 is `01 05`, 2 is `01 0a`. The page's separate on/off switch sends the
+  current wire level with enabled 1 or 0. A read can report enabled 0 with a
+  nonzero level (the device keeps its last level).
+- **Spatial audio**: `spatialAudio` 6 offers only Fixed (bit 0x02; 0x04 has no
+  mode). ear-web decodes the reply from the mode byte alone: mode 1 is Fixed,
+  anything else Off, because the head byte carries noise on this device.
+- **Anti-leakage**: off, calls only, audio and calls.
+- **Long battery mode**: read on connect, switched only with a reboot.
+- **No in-ear detection, personal sound or advanced EQ**.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400, example epoch as section 5 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 bass enhance, +1100 | `5560014ec000000970d7` |
+| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D spatial | `5560014fc000000d4cd4` |
+| 0E long battery mode | `55600167c000000e6cd3` |
+| 0F anti-leakage | `55600171c000000fe4d0` |
+
+Writes, op 01:
+
+| Setting | Frame |
+|---|---|
+| bass level 0 `0xF051 00 00` | `55600151f0020001000076ad` |
+| bass level 1 `0xF051 01 05` | `55600151f00200010105b73e` |
+| bass level 2 `0xF051 01 0a` | `55600151f0020001010af73a` |
+| anti-leakage off `0xF075 00` | `55600175f0010001009457` |
+| anti-leakage calls only `0xF075 01` | `55600175f0010001015597` |
+| anti-leakage audio and calls `0xF075 02` | `55600175f0010001021596` |
+
+## 9. Nothing Ear (3a) (B190)
+
+Page `MainControl_jumpluff`, scripts as section 1 plus `jumpluff.js`,
+`eq_two.js`, `advanced_eq.js`. Model ids `7B2328` (white), `E9C3BE` (black),
+`148887` (pink), `DB45D3` (yellow). Earbuds with a case. Three configs split
+by firmware (up to 1.0.1.36, 1.0.1.37 to 1.0.1.60, 1.0.1.61 on) with the same
+values: `ancLevel` 63, `earDetection` absent, `advancedEq` 1, `eq` 31,
+`ultraBass` 0, `spatialAudio` 6, `highQualityAudio` 4, `dualConnection` 1,
+`walkieTalkieMode` 0, no personal sound, custom EQ as B189 (high shelf
+3400 Hz).
+
+- **Battery**: ids 2 left, 3 right, 4 case.
+- **ANC**: all six modes, codes as section 4.
+- **EQ** uses the earbud EQ commands (`0xC01F` / `0xF010` / `0x401F`): 0
+  balanced, 1 voice, 2 more treble, 3 more bass, 5 custom. Advanced is a sixth
+  button: it sends `0xF04F 01 00` then `0xC04D FF`. Every other button sends
+  `0xF04F 00 00` first, then `0xF010 <preset> 00`; custom adds `0xC044` twice.
+  The advanced EQ status reply is not mapped to a button on this model.
+- **In-ear detection**: read and set (section 7).
+- **Spatial audio**: Off and Fixed, standard decoding (a reply with head 1
+  reads as Head Tracked, which this model does not offer).
+- **No bass enhance, ear fit test frame, personal sound, super mic, call
+  transparency or walkie-talkie.** The page offers an ear tip test button,
+  but `launchEarFitTest` sends nothing for B190.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+## 10. Nothing Headphone (1) Pro (B192)
+
+Page `MainControl_lanturn`, scripts as B190 with `lanturn.js`. Model ids
+`CDFDEC` (black), `086485` (silver). Headphone, single config: `single` 1,
+`deviceType` 6, `ancLevel` 63, `earDetection` 1, `advancedEq` 1,
+`supportMiddleEq` 1, `eq` 95, `spatialAudio` 7 with `useAudiodoSpatial` 1,
+`audiodo` 1, `supportStudio` 1, `highQualityAudio` 4, `dualConnection` 1,
+`findDevice` 1, custom EQ as B175 (high shelf 3500 Hz).
+
+- **Battery**: id 6 only, as B175.
+- **ANC**: all six modes.
+- **EQ**: as B190, plus 7 more detail. Advanced also requests the precision
+  driver EQ (`0xC06C`, then `0xC06D FF`) after `0xC04D FF`. An advanced EQ
+  status reply of 1 shows the advanced button.
+- **In-ear detection** (shown as over-ear detection): read and set.
+- **Spatial audio**: none from ear-web. The config routes it through the
+  Audiodo SDK, so the `0xC04F` read is skipped and no spatial row is shown.
+  ear-web only logs the `0xE029` / `0x6029` Audiodo spatial push.
+- **Personal sound (Audiodo)**: read and set, frames as section 5.
+- **Flat EQ**: read on connect, decoded from the reply and both pushes.
+- **Ring** uses the headphone form `0xF002 06 01`, risky as for B175.
+- **Reply-triggered writes ear-web sends**: a gesture reply holding the record
+  device 6, button 10, gesture 7, action 31 (News on press and hold) makes it
+  send `0xF003 01 06 0a 07 01` to replace it with no action; a precision
+  driver EQ mode reply of 0 makes it send `0xF06C 01`.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 to 09 | as B190 |
+| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D Audiodo personal sound | `5560015ac000000d4117` |
+| 0E flat EQ | `55600168c000000e38d2` |
