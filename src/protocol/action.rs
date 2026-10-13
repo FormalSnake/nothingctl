@@ -3,7 +3,7 @@
 //! is built.
 
 use super::frame::Command;
-use super::model::Model;
+use super::model::{CHOICES, Model, TOGGLE_KEYS};
 use super::state::State;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -12,16 +12,29 @@ pub enum Action {
     Eq(String),
     /// `[bass, mid, treble]`.
     EqCustom([i8; 3]),
-    LowLatency(bool),
     Spatial(String),
-    InEar(bool),
-    Bass(u8),
-    PersonalSound(bool),
-    Leakage(String),
+    Bass(Bass),
+    /// A toggle by its setting name.
+    Toggle(String, bool),
+    /// A choice by its setting name, and the mode name.
+    Choice(String, String),
 }
 
-pub const GRAMMAR: &str = "anc <mode> | eq <preset> | eq-custom <bass> <mid> <treble> | low-latency <on|off> \
-     | spatial <mode> | in-ear <on|off> | bass <level> | personal-sound <on|off> | leakage <mode>";
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Bass {
+    Level(u8),
+    On,
+    Off,
+}
+
+pub const GRAMMAR: &str = "anc <mode> | eq <preset> | eq-custom <bass> <mid> <treble> | spatial <mode> \
+     | bass <level|on|off> | leakage <mode> | mic-mode <mode> | <toggle> <on|off>, toggles: low-latency, in-ear, \
+     personal-sound, personalized-anc, super-mic, call-transparency, walkie-talkie";
+
+/// The `set` names of toggles that can be written.
+fn toggle_names() -> impl Iterator<Item = &'static str> {
+    TOGGLE_KEYS.iter().filter(|t| t.set.is_some()).map(|t| t.name)
+}
 
 impl Action {
     pub fn parse<S: AsRef<str>>(args: &[S]) -> Result<Action, String> {
@@ -33,15 +46,21 @@ impl Action {
                 let gain = |s: &str| s.parse::<i8>().map_err(|_| format!("gain {s:?} is not a whole number"));
                 Ok(Action::EqCustom([gain(a)?, gain(b)?, gain(c)?]))
             }
-            ["low-latency", "on"] => Ok(Action::LowLatency(true)),
-            ["low-latency", "off"] => Ok(Action::LowLatency(false)),
             ["spatial", mode] => Ok(Action::Spatial(mode.to_string())),
-            ["in-ear", v] => Ok(Action::InEar(on_off(v)?)),
-            ["bass", level] => {
-                level.parse::<u8>().map(Action::Bass).map_err(|_| format!("bass level {level:?} is not a whole number"))
+            ["bass", "on"] => Ok(Action::Bass(Bass::On)),
+            ["bass", "off"] => Ok(Action::Bass(Bass::Off)),
+            ["bass", level] => level
+                .parse::<u8>()
+                .map(|l| Action::Bass(Bass::Level(l)))
+                .map_err(|_| format!("bass takes a level, on or off, not {level:?}")),
+            [name, mode] if CHOICES.iter().any(|c| c.name == *name) => {
+                Ok(Action::Choice(name.to_string(), mode.to_string()))
             }
-            ["personal-sound", v] => Ok(Action::PersonalSound(on_off(v)?)),
-            ["leakage", mode] => Ok(Action::Leakage(mode.to_string())),
+            [name, v] if toggle_names().any(|n| n == *name) => match *v {
+                "on" => Ok(Action::Toggle(name.to_string(), true)),
+                "off" => Ok(Action::Toggle(name.to_string(), false)),
+                _ => Err(format!("{name} takes on or off, not {v:?}")),
+            },
             _ => Err(format!("expected {GRAMMAR}")),
         }
     }
@@ -51,22 +70,32 @@ impl Action {
             Action::Anc(m) => format!("anc {m}"),
             Action::Eq(p) => format!("eq {p}"),
             Action::EqCustom([a, b, c]) => format!("eq-custom {a} {b} {c}"),
-            Action::LowLatency(on) => format!("low-latency {}", if *on { "on" } else { "off" }),
             Action::Spatial(m) => format!("spatial {m}"),
-            Action::InEar(on) => format!("in-ear {}", if *on { "on" } else { "off" }),
-            Action::Bass(level) => format!("bass {level}"),
-            Action::PersonalSound(on) => format!("personal-sound {}", if *on { "on" } else { "off" }),
-            Action::Leakage(m) => format!("leakage {m}"),
+            Action::Bass(Bass::Level(l)) => format!("bass {l}"),
+            Action::Bass(Bass::On) => "bass on".to_string(),
+            Action::Bass(Bass::Off) => "bass off".to_string(),
+            Action::Toggle(name, on) => format!("{name} {}", if *on { "on" } else { "off" }),
+            Action::Choice(name, mode) => format!("{name} {mode}"),
         }
     }
 
-    /// The frames ear-web sends for this setting, in order.
-    pub fn frames(&self, model: &Model) -> Result<Vec<(Command, Vec<u8>)>, String> {
+    /// The frames ear-web sends for this setting, in order. `state` supplies
+    /// the firmware for gated features and the current bass level.
+    pub fn frames(&self, model: &Model, state: &State) -> Result<Vec<(Command, Vec<u8>)>, String> {
+        let fw = state.firmware.as_deref();
         match self {
             Action::Anc(name) => {
-                let mode = model
-                    .anc_by_name(name)
-                    .ok_or_else(|| unsupported(model, "anc mode", name, model.anc.iter().map(|m| m.name)))?;
+                let modes = model.anc(fw);
+                if modes.is_empty() {
+                    return Err(match (model.anc_gate, fw) {
+                        (Some(_), None) => format!("{} has noise control on some firmware only", model.name),
+                        _ => format!("{} has no noise control", model.name),
+                    });
+                }
+                let mode = modes
+                    .iter()
+                    .find(|m| m.name == name)
+                    .ok_or_else(|| unsupported(model, "anc mode", name, modes.iter().map(|m| m.name)))?;
                 Ok(vec![(Command::AncSet, vec![0x01, mode.code, 0x00])])
             }
             Action::Eq(name) => {
@@ -98,12 +127,6 @@ impl Action {
                 }
                 Ok(vec![(Command::CustomEqSet, custom_eq_payload(model, *gains))])
             }
-            Action::LowLatency(on) => {
-                if !model.low_latency {
-                    return Err(format!("{} has no low latency mode", model.name));
-                }
-                Ok(vec![(Command::LatencySet, vec![if *on { 0x01 } else { 0x02 }, 0x00])])
-            }
             Action::Spatial(name) => {
                 if model.spatial.is_empty() {
                     return Err(format!("{} has no spatial audio", model.name));
@@ -113,37 +136,42 @@ impl Action {
                     .ok_or_else(|| unsupported(model, "spatial mode", name, model.spatial.iter().map(|m| m.name)))?;
                 Ok(vec![(Command::SpatialSet, mode.payload.to_vec())])
             }
-            Action::InEar(on) => {
-                if !model.in_ear {
-                    return Err(format!("{} has no in-ear detection", model.name));
-                }
-                Ok(vec![(Command::InEarSet, vec![0x01, 0x01, u8::from(*on)])])
-            }
-            Action::Bass(level) => {
-                if model.bass.is_empty() {
-                    return Err(format!("{} has no bass enhance", model.name));
-                }
-                let wire = model
-                    .bass
-                    .get(usize::from(*level))
-                    .ok_or_else(|| format!("bass level {level} is outside 0..{}", model.bass.len() - 1))?;
-                Ok(vec![(Command::BassSet, vec![u8::from(*level != 0), *wire])])
-            }
-            Action::PersonalSound(on) => {
-                if !model.personal_sound {
-                    return Err(format!("{} has no personal sound", model.name));
-                }
-                Ok(vec![(Command::PersonalSoundSet, vec![u8::from(*on)])])
-            }
-            Action::Leakage(name) => {
-                if model.leakage.is_empty() {
-                    return Err(format!("{} has no anti-leakage mode", model.name));
-                }
-                let mode = model.leakage_by_name(name).ok_or_else(|| {
-                    unsupported(model, "anti-leakage mode", name, model.leakage.iter().map(|m| m.name))
+            Action::Bass(arg) => Ok(vec![(Command::BassSet, bass_payload(model, state, *arg)?.to_vec())]),
+            Action::Toggle(name, on) => {
+                let t = model.toggles(fw).find(|t| t.name == name).ok_or_else(|| {
+                    if model.toggles.iter().any(|(t, _)| t.name == name) {
+                        format!("{} has {name} on some firmware only", model.name)
+                    } else {
+                        format!("{} has no {name}", model.name)
+                    }
                 })?;
-                Ok(vec![(Command::LeakageSet, vec![mode.code])])
+                let (cmd, on_payload, off_payload) = t.set.ok_or_else(|| format!("{name} is read only"))?;
+                Ok(vec![(cmd, if *on { on_payload } else { off_payload }.to_vec())])
             }
+            Action::Choice(name, mode) => {
+                let c = model
+                    .choices
+                    .iter()
+                    .find(|c| c.name == name)
+                    .ok_or_else(|| format!("{} has no {name}", model.name))?;
+                let m = c
+                    .modes
+                    .iter()
+                    .find(|m| m.name == mode)
+                    .ok_or_else(|| unsupported(model, name, mode, c.modes.iter().map(|m| m.name)))?;
+                Ok(vec![(c.set, vec![m.code])])
+            }
+        }
+    }
+
+    /// The frames depend on what the device reports: its firmware, for a
+    /// feature gated on it, or its current bass level.
+    pub fn needs_state(&self, model: &Model) -> bool {
+        match self {
+            Action::Anc(_) => model.anc_gate.is_some(),
+            Action::Bass(arg) => !matches!(arg, Bass::Level(_)),
+            Action::Toggle(name, _) => model.toggles.iter().any(|(t, gate)| t.name == name && gate.is_some()),
+            _ => false,
         }
     }
 
@@ -154,23 +182,51 @@ impl Action {
             Action::Anc(name) => state.anc_code = model.anc_by_name(name).map(|m| m.code),
             Action::Eq(name) => state.eq_preset = model.preset_by_name(name).map(|p| p.value),
             Action::EqCustom(g) => state.custom_eq = Some(g.map(f32::from)),
-            Action::LowLatency(on) => state.low_latency = Some(*on),
             Action::Spatial(name) => state.spatial = model.spatial_by_name(name).map(|m| m.payload),
-            Action::InEar(on) => state.in_ear = Some(*on),
-            Action::Bass(level) => {
-                state.bass = model.bass.get(usize::from(*level)).map(|w| [u8::from(*level != 0), *w]);
+            Action::Bass(arg) => {
+                if let Ok(p) = bass_payload(model, state, *arg) {
+                    state.bass = Some(p);
+                }
             }
-            Action::PersonalSound(on) => state.personal_sound = Some(*on),
-            Action::Leakage(name) => state.leakage = model.leakage_by_name(name).map(|m| m.code),
+            Action::Toggle(name, on) => {
+                if let Some(t) = model.toggles.iter().find(|(t, _)| t.name == name) {
+                    state.toggles.insert(t.0.key, *on);
+                }
+            }
+            Action::Choice(name, mode) => {
+                if let Some(c) = model.choices.iter().find(|c| c.name == name)
+                    && let Some(m) = c.modes.iter().find(|m| m.name == mode)
+                {
+                    state.choices.insert(c.key, m.code);
+                }
+            }
         }
     }
 }
 
-fn on_off(v: &str) -> Result<bool, String> {
-    match v {
-        "on" => Ok(true),
-        "off" => Ok(false),
-        _ => Err(format!("expected on or off, got {v:?}")),
+/// `<enabled> <wire level>`. A level on a three-stage picker sends what the
+/// picker sends, enabled unless the level is 0. A level on the other models
+/// is sent with bass on, as the on switch sends it. On and off keep the
+/// level the device reported.
+fn bass_payload(model: &Model, state: &State, arg: Bass) -> Result<[u8; 2], String> {
+    let bass = model.bass.as_ref().ok_or_else(|| format!("{} has no bass enhance", model.name))?;
+    if !bass.settable {
+        return Err(format!("bass enhance on the {} is read only", model.name));
+    }
+    match arg {
+        Bass::Level(level) => {
+            let min = u8::from(!bass.zero_is_off);
+            let max = bass.wire.len() as u8 - 1;
+            if !(min..=max).contains(&level) {
+                return Err(format!("bass level {level} is outside {min}..{max}"));
+            }
+            let enabled = !bass.zero_is_off || level != 0;
+            Ok([u8::from(enabled), bass.wire[usize::from(level)]])
+        }
+        Bass::On | Bass::Off => {
+            let [_, wire] = state.bass.ok_or("the current bass level is not known yet, so set a level instead")?;
+            Ok([u8::from(arg == Bass::On), wire])
+        }
     }
 }
 

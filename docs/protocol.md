@@ -1,8 +1,9 @@
 # Nothing protocol facts
 
 Sections 1 to 6 cover the CMF Headphone Pro (B175) and the transport every
-model shares. Sections 7 to 10 cover the CMF Clip Pro (B189), Nothing Ear
-(3a) (B190) and Nothing Headphone (1) Pro (B192).
+model shares. Section 7 covers what ear-web does the same way for every
+other model, and sections 8 to 29 cover each model ear-web supports, B175
+included, with every frame this tool can send to it.
 
 B175 was extracted 2026-09-30 from the live ear-web site (earweb.bttl.xyz) page
 `MainControl_forretress` and the scripts it loads: `bluetooth_socket.js`,
@@ -466,40 +467,58 @@ Flat, all gains 0 (total gain -0.0):
   `0xF011`, B155 only), case LED colour (B181 only), super mic, call
   transparency, walkie-talkie, long battery mode, leakage protection (none are
   flagged in its config).
-- **Ring is broken on this page.** The headphone header's Ring button calls the
-  left-ring handler with no argument, which throws before any frame is built,
-  so ear-web never sends a find frame to a B175. Had it run, the shared ring
-  function would send `0xF002 02 01` (the earbud-left form): the headphone form
-  `06 01` is only used for B170, B164 and B186, and B175 is not in that list even
-  though its config says `deviceType: 6` and `findDevice: 1`. Which form B175
-  accepts cannot be settled from ear-web.
+- **Ring** goes through the shared earbud form `0xF002 02 01` (left) on this
+  page: the headphone form `06 01` is only used for B170, B164, B186 and B192,
+  and B175 is not in that list even though its config says `deviceType: 6` and
+  `findDevice: 1`. At `4bcaa8a` the header's Ring button threw before building
+  a frame; at `d076e13` the left-ring handler no longer throws, so ear-web now
+  sends `02 01` to a B175. Which form B175 accepts cannot be settled from
+  ear-web.
 
-## 7. ear-web changes since the B175 extraction
+## 7. Shared facts for every model
 
 Extracted 2026-10-13 from the ear-web repository
 (github.com/radiance-project/ear-web) at `d076e13` (2026-10-07). Every script
 and the config file are byte-identical to what earweb.bttl.xyz served that
 day; the HTML pages differ only by the Cloudflare challenge snippet. The B175
-extraction matches `4bcaa8a` (2026-08-20). ear-web's code was read, never run.
-Golden frames in sections 8 to 10 were built with an independent Python
-encoder (the one that reproduced section 5) and rebuilt by the tests.
+extraction matches `4bcaa8a` (2026-08-20); nothing B175 sends changed since.
+ear-web's code was read, never run. The frames in sections 8 to 29 were built
+with an independent Python encoder (the one that reproduced section 5) and the
+tests rebuild every one of them from the model tables.
 
-What changed for B175: nothing on the wire. Its config entry, its page and
-`forretress.js` are unchanged, and none of the new config-driven reads apply
-to it (it has no `supportStudio`, `useAudiodoSpatial`, `longPowerMode` or
-`supportLeakageProtection`). Shared changes that matter to a client:
+Routing: the index page maps the Fast Pair model id to a base model through
+its own table and opens that base's page. `altBase` entries (B183, B187,
+B198, B201) only pick product images; the config is always looked up by base.
 
-- `0x6003` is now handled exactly like the `0xE003` ANC push, and `0x6019`
-  like the `0xE019` Audiodo push.
-- After the firmware reply the config-driven reads go out in this order, each
-  only when its config flag is set: dual connection (`0xC027`, `0xC028 00`),
-  codec (`0xC029`), spatial audio (`0xC04F`, skipped when `useAudiodoSpatial`
-  is set), personal sound (`0xC022` Mimi or `0xC05A` Audiodo), super mic
-  (`0xC05E`, `0xC064`), call transparency (`0xC05F`), walkie-talkie
-  (`0xC060`), long battery mode (`0xC067`), anti-leakage (`0xC071`), flat EQ
-  (`0xC068`).
+Connect sequence: every page runs the timed steps of section 3, and each
+step is sent or skipped by hardcoded model lists, not by the config:
 
-Commands the new models use, beyond section 4:
+| Step | Sent to |
+|---|---|
+| `0xC01F` EQ, +100 | earbud EQ models (all but the listening-mode ones) |
+| `0xC050` listening mode, +200 | B168, B172, B175, B179, B184, B185, B189, B195, B197 |
+| `0xF00A` UTC, +400 | every model but B181 |
+| `0xC00E` in-ear, +500 | every model but B174, B175, B185, B186, B189 |
+| `0xC020` personalized ANC, +700 | B155 |
+| `0xC01E` ANC, +900 | every model; B157 only on firmware whose third part is `2`, checked when the step runs |
+| `0xC04E` bass enhance, +1100 | B162, B164, B168, B170, B171, B172, B173, B179, B184, B185, B186, B189, B195, B197 |
+
+After the firmware reply, the config-driven reads go out in this order, each
+only when its config flag is set: dual connection (`0xC027`, `0xC028 00`),
+codec (`0xC029`), spatial audio (`0xC04F`, skipped when `useAudiodoSpatial`
+is set), personal sound (`0xC022` Mimi or `0xC05A` Audiodo), super mic
+(`0xC05E`, then mic mode `0xC064`), call transparency (`0xC05F`),
+walkie-talkie (`0xC060`), long battery mode (`0xC067`), anti-leakage
+(`0xC071`), flat EQ (`0xC068`). A model with several configs picks the first
+whose `minFirmware`/`maxFirmware` contain the firmware: parts compare
+numerically, `*` skips a part, anything after `-` is dropped, both bounds are
+inclusive. Only B170's configs differ in a flag that changes frames
+(`audiodo` from `*.*.1.75`).
+
+`0x6003` is handled like the `0xE003` ANC push, and `0x6019` like the
+`0xE019` Audiodo push.
+
+Commands the models use beyond section 4:
 
 | Feature | Send id | Payload | Reply / push id and decoding | Tag |
 |---|---|---|---|---|
@@ -507,21 +526,53 @@ Commands the new models use, beyond section 4:
 | EQ preset set (earbud EQ) | `0xF010` | `<preset> 00` | none handled | setting write |
 | Advanced EQ switch | `0xF04F` | `01 00` on, `00 00` off | none handled | setting write |
 | Advanced EQ bands read | `0xC04D` | `FF` (current profile) | `0x404D`, bands; not used here | safe read |
+| Advanced EQ bands set | `0xF050` | profile, 8 bands | none handled; not sent by this tool | setting write |
 | Precision driver EQ mode read | `0xC06C` | none | `0x406C`. Byte 8 = 1 enabled. If 0, ear-web writes `0xF06C 01` once. | safe read |
 | Precision driver EQ bands read | `0xC06D` | `FF` | `0x406D`, bands; not used here | safe read |
 | In-ear detection read | `0xC00E` | none | `0x400E`. Byte 10 = 1 on, anything else off. | safe read |
 | In-ear detection set | `0xF004` | `01 01 01` on, `01 01 00` off | none handled | setting write |
+| Personalized ANC read | `0xC020` | none | `0x4020`. Byte 8 nonzero = on. | safe read |
+| Personalized ANC set | `0xF011` | `01` on, `00` off | none handled | setting write |
+| Personal sound (Mimi) read | `0xC022` | none | `0x4022`. Byte 8 = 1 on. | safe read |
+| Personal sound (Mimi) set | `0xF015` | `01` on, `00` off | none handled | setting write |
 | Bass enhance read | `0xC04E` | none | `0x404E`. Byte 8 = 1 enabled, byte 9 = wire level. | safe read |
 | Bass enhance set | `0xF051` | `<enabled> <wire level>` | none handled | setting write |
+| Super mic read / set | `0xC05E` / `0xF05F` | `01` on, `00` off | `0x405E`. Byte 8 = 1 on. | setting write |
+| Mic mode read / set | `0xC064` / `0xF065` | `00` natural, `01` voice focus | `0x4064`. Byte 8 = mode. | setting write |
+| Call transparency read / set | `0xC05F` / `0xF060` | `01` on, `00` off | `0x405F`. Byte 8 = 1 on. | setting write |
+| Walkie-talkie read / set | `0xC060` / `0xF061` | `01` on, `00` off | `0x4060`. Byte 8 = 1 on. | setting write |
 | Long battery mode read | `0xC067` | none | `0x4067`. Byte 8 = 1 on. | safe read |
 | Long battery mode set | `0xF068` | `01` on, `00` off | the device reboots (ear-web expects the drop, section 1) | **risky** (reboots device) |
 | Anti-leakage read | `0xC071` | none | `0x4071`. Byte 8 = mode: 0 off, 1 calls only, 2 audio and calls. | safe read |
 | Anti-leakage set | `0xF075` | `<mode>` | none handled | setting write |
 | Flat EQ read | `0xC068` | none | `0x4068` reply, `0xE01C` and `0x601C` pushes. Byte 8 = 1 on. | safe read |
+| Ear fit test | `0xF014` | `01` | `0xE00D` push: byte 8 left, 9 right; 0 good, 1 adjust, 2 not detected | **risky** (starts a test tone) |
+| Case LED colour read / set (B181) | `0xC017` / `0xF00D` | 5 records `<id> R G B` | `0x4017` | not offered here |
 
-Flat EQ is switched by a slider on the B192 earcup. While it is on, ear-web
-blocks transparency, spatial audio and the EQ page in its UI; it sends no
-frame for it.
+ANC: the full widget offers the six modes of section 4 by `ancLevel` bits.
+The basic widget (B168, B185) has noise cancellation, transparency and off;
+its noise cancellation button always sends the High code `01`, and a read of
+`01` to `04` shows that button. B181, B157 and B163 override the widget with
+their own subsets, listed in their sections.
+
+EQ, earbud pages: each preset button sends `0xF010 <preset> 00`; on pages
+with an Advanced button it is preceded by `0xF04F 00 00`, and Advanced itself
+sends `0xF04F 01 00` then `0xC04D FF` (plus `0xC06C`, `0xC06D FF` where
+`supportMiddleEq` is set). A read of 6 shows Advanced; on B155, B157, B170,
+B171, B174, B186 and B192 an advanced EQ status reply of 1 does too. Custom
+sends `0xC044` twice after the preset write, as on B175.
+
+Bass enhance comes in two schemes. Five levels: wire value = level × 2; a
+level click keeps the current enabled bit and the on/off switch keeps the
+current level, so `01 <2n>` is what the switch sends at level n. Three
+stages (B186, B189, B195, B197): levels 0, 1, 2 are wire 0, 5, 10, and a
+level click sends enabled = level is not 0. B185 reads bass but ear-web never
+writes it: the base is missing from the write list.
+
+Spatial audio modes come from the `spatialAudio` bits: 0x01 Head Tracked
+(`01 01`), 0x02 Fixed (`01 00`), 0x08 Concert (`02 00`), 0x10 Theatre
+(`03 00`), 0x20 Game (`04 00`); 0x04 has no mode. A reply with head byte 1
+reads as Head Tracked.
 
 Reads, op 01:
 
@@ -537,126 +588,147 @@ Reads, op 01:
 | anti-leakage `0xC071` | `55600171c00000016514` |
 | flat EQ `0xC068` | `55600168c000000178d6` |
 
-Writes shared by the new models, op 01 (ANC and low latency use the section 5
-frames unchanged):
-
-| Command | Frame |
-|---|---|
-| EQ preset 0 `0xF010 00 00` | `55600110f0020001000027a9` |
-| EQ preset 1 | `55600110f002000101002639` |
-| EQ preset 2 | `55600110f0020001020026c9` |
-| EQ preset 3 | `55600110f002000103002759` |
-| EQ preset 5 | `55600110f0020001050024f9` |
-| EQ preset 7 | `55600110f002000107002599` |
-| advanced EQ off `0xF04F 00 00` | `5560014ff0020001000088ac` |
-| advanced EQ on `0xF04F 01 00` | `5560014ff00200010100893c` |
-| in-ear off `0xF004 01 01 00` | `55600104f0030001010100b864` |
-| in-ear on `0xF004 01 01 01` | `55600104f003000101010179a4` |
-| spatial Fixed `0xF052 01 00` | `55600152f00200010100443d` |
-
-Custom EQ with the high shelf at 3400 Hz (B189, B190), same layout as section
-4. Bass +3, mid 0, treble -3:
-
-`55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2`
-
-Flat:
-
-`55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5`
-
 Risky, op 01 (listed for recognition, not for sending):
 
 | Command | Frame |
 |---|---|
 | long battery mode off `0xF068 00` (reboots) | `55600168f00100010097da` |
 | long battery mode on `0xF068 01` (reboots) | `55600168f001000101561a` |
-| ring headphone form `0xF002 06 01` (B192) | `55600102f00200010601d7c8` |
+| ring headphone form `0xF002 06 01` | `55600102f00200010601d7c8` |
+| ring right bud `0xF002 03 01` | `55600102f00200010301d498` |
+| ring both, B181 form `0xF002 01` | `55600102f0010001015f10` |
+| ear fit test `0xF014 01` | `55600114f0010001015de6` |
 
-## 8. CMF Clip Pro (B189)
+## 8. Nothing ear (2) (B155)
 
-Page `MainControl_igglybuff`, scripts as section 1 plus `igglybuff.js`,
-`eq_igglybuff.js`, `smart_dial.js`, `anti_leakage.js`. Model ids `8F28ED`
-(blue), `E6673A` (orange), `DCD2CB` (white), `DA1280` (black). Open earbuds
-with a case, single config: no `ancLevel`, `earDetection` 0, `ultraBass` 1
-(`ultraBassType` 3), `advancedEq` 0, `spatialAudio` 6, `highQualityAudio` 4,
-`dualConnection` 1, `longPowerMode` 1, `supportLeakageProtection` 1, custom EQ
-low shelf 140 Hz Q 0.8, peak 980 Hz Q 0.7, high shelf 3400 Hz Q 1.0.
+Page `MainControl_two`. Fast Pair `ACC520`, `DEE8C0`. Earbuds with a case
+(battery ids 2, 3, 4). Two configs (up to `*.*.1.94`, from `*.*.1.95`) differ
+only in `advancedEq`, which ear-web never reads.
 
-- **Battery**: ids 2 left, 3 right, 4 case.
-- **No ANC page**, but ear-web still sends the `0xC01E` read at +900 ms. Its
-  reply is not shown.
-- **EQ** uses the listening-mode commands, as B175, and the same values: 1
-  rock, 2 electronic, 3 pop, 4 enhance vocals, 5 classical, 6 custom. There is
-  no Dirac Opteo: a read of 0 has no button and the page's handler throws.
-  Choosing custom sends `0xF01D 06 00` then `0xC044` twice, as B175. ear-web
-  refuses EQ changes while long battery mode is on or anti-leakage is on
-  audio and calls (UI checks, no frame).
-- **Bass enhance** has three levels, wire values 0, 5, 10. Picking a level
-  sends `<enabled> <wire>` with enabled = level is not 0, so level 0 is `00 00`,
-  1 is `01 05`, 2 is `01 0a`. The page's separate on/off switch sends the
-  current wire level with enabled 1 or 0. A read can report enabled 0 with a
-  nonzero level (the device keeps its last level).
-- **Spatial audio**: `spatialAudio` 6 offers only Fixed (bit 0x02; 0x04 has no
-  mode). ear-web decodes the reply from the mode byte alone: mode 1 is Fixed,
-  anything else Off, because the head byte carries noise on this device.
-- **Anti-leakage**: off, calls only, audio and calls.
-- **Long battery mode**: read on connect, switched only with a reboot.
-- **No in-ear detection, personal sound or advanced EQ**.
+- ANC: all six modes. Codec AAC or LHDC.
+- EQ: earbud EQ with Advanced; advanced EQ status 1 shows Advanced. Custom
+  EQ high shelf 3400 Hz.
+- Personalized ANC (B155 only): read at +700 ms, set `0xF011`.
+- Personal sound through Mimi (`0xC022` / `0xF015`).
+- In-ear detection and low latency. No bass enhance or spatial audio.
+- Dual connection writes reboot this model (`dualConnectionReboot` 1).
 
 Connect sequence, actual op ids:
 
 | Op | Frame |
 |---|---|
 | 01 battery, 0 ms | `55600107c0000001acdf` |
-| 02 listening mode, +200 | `55600150c00000029912` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
 | 03 firmware, +300 | `55600142c0000003e0d1` |
-| 04 UTC time, +400, example epoch as section 5 | `5560010af00400046abc51002342` |
-| 05 latency, +600 | `55600141c000000524d3` |
-| 06 gestures, +800 | `55600118c000000678df` |
-| 07 ANC, +900 | `5560011ec0000007311f` |
-| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
-| 09 bass enhance, +1100 | `5560014ec000000970d7` |
-| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
-| 0B dual list from 0 | `55600128c001000b00dfbe` |
-| 0C codec | `55600129c000000c851c` |
-| 0D spatial | `5560014fc000000d4cd4` |
-| 0E long battery mode | `55600167c000000e6cd3` |
-| 0F anti-leakage | `55600171c000000fe4d0` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 personalized ANC, +700 | `55600120c000000718da` |
+| 08 gestures, +800 | `55600118c0000008f91b` |
+| 09 ANC, +900 | `5560011ec0000009b0db` |
+| 0A advanced EQ status, +1000 | `5560014cc000000a4916` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E Mimi personal sound | `55600122c000000ea11c` |
 
 Writes, op 01:
 
-| Setting | Frame |
+| Setting | Frames, in order |
 |---|---|
-| bass level 0 `0xF051 00 00` | `55600151f0020001000076ad` |
-| bass level 1 `0xF051 01 05` | `55600151f00200010105b73e` |
-| bass level 2 `0xF051 01 0a` | `55600151f0020001010af73a` |
-| anti-leakage off `0xF075 00` | `55600175f0010001009457` |
-| anti-leakage calls only `0xF075 01` | `55600175f0010001015597` |
-| anti-leakage audio and calls `0xF075 02` | `55600175f0010001021596` |
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personalized-anc on` | `55600111f0010001015db3` |
+| `personalized-anc off` | `55600111f0010001009c73` |
+| `personal-sound on` | `55600115f0010001015c37` |
+| `personal-sound off` | `55600115f0010001009df7` |
 
-## 9. Nothing Ear (3a) (B190)
+## 9. Nothing ear (stick) (B157)
 
-Page `MainControl_jumpluff`, scripts as section 1 plus `jumpluff.js`,
-`eq_two.js`, `advanced_eq.js`. Model ids `7B2328` (white), `E9C3BE` (black),
-`148887` (pink), `DB45D3` (yellow). Earbuds with a case. Three configs split
-by firmware (up to 1.0.1.36, 1.0.1.37 to 1.0.1.60, 1.0.1.61 on) with the same
-values: `ancLevel` 63, `earDetection` absent, `advancedEq` 1, `eq` 31,
-`ultraBass` 0, `spatialAudio` 6, `highQualityAudio` 4, `dualConnection` 1,
-`walkieTalkieMode` 0, no personal sound, custom EQ as B189 (high shelf
-3400 Hz).
+Page `MainControl_sticks`. Fast Pair `1016DD`. Earbuds with a case (ids
+2, 3, 4). Three configs; the flags that differ (`ancLevel`, `advancedEq`)
+change no frame.
 
-- **Battery**: ids 2 left, 3 right, 4 case.
-- **ANC**: all six modes, codes as section 4.
-- **EQ** uses the earbud EQ commands (`0xC01F` / `0xF010` / `0x401F`): 0
-  balanced, 1 voice, 2 more treble, 3 more bass, 5 custom. Advanced is a sixth
-  button: it sends `0xF04F 01 00` then `0xC04D FF`. Every other button sends
-  `0xF04F 00 00` first, then `0xF010 <preset> 00`; custom adds `0xC044` twice.
-  The advanced EQ status reply is not mapped to a button on this model.
-- **In-ear detection**: read and set (section 7).
-- **Spatial audio**: Off and Fixed, standard decoding (a reply with head 1
-  reads as Head Tracked, which this model does not offer).
-- **No bass enhance, ear fit test frame, personal sound, super mic, call
-  transparency or walkie-talkie.** The page offers an ear tip test button,
-  but `launchEarFitTest` sends nothing for B190.
+- ANC exists only on firmware whose third part is the string `2` (`1.0.2.x`):
+  the page shows it and the `0xC01E` read at +900 ms goes out only then, and
+  only if the firmware reply arrived first. Two buttons: noise cancellation
+  sends `01 01 00` (High) and off `01 05 00`; a read of `01` or `03` shows
+  noise cancellation, `07` shows nothing.
+- EQ: earbud EQ with Advanced on every firmware; advanced EQ status 1 shows
+  Advanced. Custom EQ peak Q is **0.66**, high shelf 3500 Hz.
+- In-ear detection and low latency. No codec, dual connection or bass.
+
+Connect sequence, actual op ids, firmware `1.0.2.0`:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+
+Connect sequence, actual op ids, firmware `1.0.1.80`:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc nc` | `5560010ff0030001010100f9d7` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c0010000000000007544c3f5283f02000040c000c05a450000803f000000404000000c43cdcc4c3f00000000000000000049fd` |
+| `eq-custom 0 0 0` | `55600141f03500010300000080010000000000007544c3f5283f020000000000c05a450000803f000000000000000c43cdcc4c3f0000000000000000007dba` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 10. Nothing Ear (a) (B162)
+
+Page `MainControl_cleffa`. Fast Pair `5E3FBC`, `03464E`, `8B6380`, and
+`C34F3B`, `404D6D`, `839E9A` with altBase B183. Earbuds with a case.
+
+- ANC: all six modes. Codec AAC or LDAC. No spatial audio.
+- EQ: earbud EQ without Advanced or a `0xF04F` switch: balanced, voice,
+  treble, bass, custom. Custom EQ high shelf 3400 Hz.
+- Bass enhance, five levels. In-ear detection and low latency.
 
 Connect sequence, actual op ids:
 
@@ -671,44 +743,1160 @@ Connect sequence, actual op ids:
 | 07 gestures, +800 | `55600118c0000007b91f` |
 | 08 ANC, +900 | `5560011ec0000008711b` |
 | 09 advanced EQ status, +1000 | `5560014cc00000090917` |
-| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
-| 0B dual list from 0 | `55600128c001000b00dfbe` |
-| 0C codec | `55600129c000000c851c` |
-| 0D spatial | `5560014fc000000d4cd4` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
 
-## 10. Nothing Headphone (1) Pro (B192)
+Writes, op 01:
 
-Page `MainControl_lanturn`, scripts as B190 with `lanturn.js`. Model ids
-`CDFDEC` (black), `086485` (silver). Headphone, single config: `single` 1,
-`deviceType` 6, `ancLevel` 63, `earDetection` 1, `advancedEq` 1,
-`supportMiddleEq` 1, `eq` 95, `spatialAudio` 7 with `useAudiodoSpatial` 1,
-`audiodo` 1, `supportStudio` 1, `highQualityAudio` 4, `dualConnection` 1,
-`findDevice` 1, custom EQ as B175 (high shelf 3500 Hz).
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `55600110f0020001000027a9` |
+| `eq voice` | `55600110f002000101002639` |
+| `eq treble` | `55600110f0020001020026c9` |
+| `eq bass` | `55600110f002000103002759` |
+| `eq custom` | `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
 
-- **Battery**: id 6 only, as B175.
-- **ANC**: all six modes.
-- **EQ**: as B190, plus 7 more detail. Advanced also requests the precision
-  driver EQ (`0xC06C`, then `0xC06D FF`) after `0xC04D FF`. An advanced EQ
-  status reply of 1 shows the advanced button.
-- **In-ear detection** (shown as over-ear detection): read and set.
-- **Spatial audio**: none from ear-web. The config routes it through the
-  Audiodo SDK, so the `0xC04F` read is skipped and no spatial row is shown.
-  ear-web only logs the `0xE029` / `0x6029` Audiodo spatial push.
-- **Personal sound (Audiodo)**: read and set, frames as section 5.
-- **Flat EQ**: read on connect, decoded from the reply and both pushes.
-- **Ring** uses the headphone form `0xF002 06 01`, risky as for B175.
-- **Reply-triggered writes ear-web sends**: a gesture reply holding the record
-  device 6, button 10, gesture 7, action 31 (News on press and hold) makes it
-  send `0xF003 01 06 0a 07 01` to replace it with no action; a precision
-  driver EQ mode reply of 0 makes it send `0xF06C 01`.
+## 11. CMF Buds Pro (B163)
+
+Page `MainControl_corsola`. Fast Pair `5F8F82`, `2EB1CA`, `ADD2C4`.
+Earbuds with a case. One config, `ancLevel` 55.
+
+- ANC override: off, transparency, high, mid, low. A strength button only
+  stores the strength and resends the current mode, so it resends
+  transparency or off when one of those is active. A read of `04` shows noise
+  cancellation without a strength.
+- EQ: earbud EQ without Advanced or `0xF04F`. Custom EQ high shelf 3400 Hz.
+- In-ear detection and low latency. No dual connection, codec or bass.
 
 Connect sequence, actual op ids:
 
 | Op | Frame |
 |---|---|
-| 01 to 09 | as B190 |
-| 0A dual enabled (if after 09) | `55600127c000000a6cdf` |
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `eq balanced` | `55600110f0020001000027a9` |
+| `eq voice` | `55600110f002000101002639` |
+| `eq treble` | `55600110f0020001020026c9` |
+| `eq bass` | `55600110f002000103002759` |
+| `eq custom` | `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 12. CMF Neckband Pro (B164)
+
+Page `MainControl_crobat`. Fast Pair `4DFC4A`, `26C190`, `AE35FD`. A
+neckband: battery id 6 only.
+
+- ANC: all six modes.
+- EQ: the earbud EQ commands despite `deviceType` 6, no Advanced. Custom EQ
+  high shelf 6900 Hz.
+- Spatial audio: off and fixed. Bass enhance, five levels. Low latency.
+- ear-web sends the `0xC00E` in-ear read but ignores the reply, and the page
+  has no in-ear toggle.
+- Dual connection writes reboot this model. Ring uses the headphone form.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `55600110f0020001000027a9` |
+| `eq voice` | `55600110f002000101002639` |
+| `eq treble` | `55600110f0020001020026c9` |
+| `eq bass` | `55600110f002000103002759` |
+| `eq custom` | `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+
+## 13. CMF Buds (B168)
+
+Page `MainControl_donphan`. Fast Pair `D35E18`, `ACCE54`, `150A27`.
+Earbuds with a case.
+
+- ANC: the basic widget (noise cancellation, transparency, off).
+- EQ: listening-mode commands with a Dirac Opteo button that sends `00`; a
+  read of 7 also shows Dirac. Custom EQ high shelf 6900 Hz.
+- Bass enhance, five levels. In-ear detection and low latency.
+- Dual connection writes reboot this model.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc nc` | `5560010ff0030001010100f9d7` |
+| `eq dirac` | `5560011df00200010000fb69` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 14. Nothing Headphone (1) (B170)
+
+Page `MainControl_elekid`. Fast Pair `C19ECD`, `2D6FDA`. Headphone,
+battery id 6 only. Two configs: from `*.*.1.75` the config adds `audiodo`,
+which adds the `0xC05A` read and the personal sound toggle.
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: earbud EQ with Advanced; advanced EQ status 1 shows Advanced. Custom
+  EQ high shelf 3500 Hz.
+- Spatial audio: off, head tracked, fixed (native `0xF052`).
+- Bass enhance, five levels. In-ear (over-ear) detection and low latency.
+- UI only: bass enhance and Advanced are blocked while spatial audio is on,
+  and spatial audio while either is on (`mutuallyExclusive`).
+
+Connect sequence, actual op ids, firmware `1.0.1.75`:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+| 0F Audiodo personal sound | `5560015ac000000fc0d6` |
+
+Connect sequence, actual op ids, firmware `1.0.1.74`:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000c05a450000803f000000404000000c43cdcc4c3f0000000000000000003252` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000c05a450000803f000000000000000c43cdcc4c3f0000000000000000000615` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial head-tracked` | `55600152f0020001010185fd` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personal-sound on` | `5560015cf001000101526e` |
+| `personal-sound off` | `5560015cf00100010093ae` |
+
+## 15. Nothing Ear (B171)
+
+Page `MainControl_twos`. Fast Pair `FEB1C7`, `A20444`. Earbuds with a
+case.
+
+- ANC: all six modes. Codec AAC, LHDC or LDAC.
+- EQ: earbud EQ with Advanced; advanced EQ status 1 shows Advanced. Custom
+  EQ high shelf 3400 Hz.
+- Personal sound through Mimi; ear-web blocks turning it on while LDAC is
+  the codec (UI only).
+- Bass enhance, five levels. In-ear detection and low latency.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E Mimi personal sound | `55600122c000000ea11c` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personal-sound on` | `55600115f0010001015c37` |
+| `personal-sound off` | `55600115f0010001009df7` |
+
+## 16. CMF Buds Pro 2 (B172)
+
+Page `MainControl_espeon`. Fast Pair `F29566`, `CA36A6`, `A7B220`,
+`2B353E`, and `2F45F5`, `E1BE45`, `1253C0`, `0F1A4F` with altBase B187.
+Earbuds with a case and a smart knob (its gestures are out of scope).
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: listening-mode commands with a Dirac Opteo button (`00`). ear-web
+  blocks Dirac while LDAC is active (`diracOpteoSupport` 1, UI only). Custom
+  EQ high shelf 6900 Hz.
+- Spatial audio: off and fixed. Bass enhance, five levels. In-ear detection
+  and low latency.
+- Dual connection writes reboot this model.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq dirac` | `5560011df00200010000fb69` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 17. Nothing Ear (3) (B173)
+
+Page `MainControl_feraligator`. Fast Pair `7D46E5`, `C1EBFD` (altBase
+B201). Earbuds with a case and a case button (its gestures are out of scope).
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: earbud EQ with Advanced; the advanced EQ status reply is not mapped.
+  Custom EQ high shelf 3400 Hz.
+- Spatial audio: off and fixed. Bass enhance, five levels.
+- Personal sound (Audiodo), super mic, mic mode (natural, voice focus; the
+  page only offers it while super mic is on), call transparency and
+  walkie-talkie, each read after the firmware reply.
+- In-ear detection and low latency.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+| 0F Audiodo personal sound | `5560015ac000000fc0d6` |
+| 10 super mic | `5560015ec000001070de` |
+| 11 mic mode | `55600164c0000011691b` |
+| 12 call transparency | `5560015fc0000012ccdf` |
+| 13 walkie-talkie | `55600160c0000013191a` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personal-sound on` | `5560015cf001000101526e` |
+| `personal-sound off` | `5560015cf00100010093ae` |
+| `super-mic on` | `5560015ff001000101525d` |
+| `super-mic off` | `5560015ff001000100939d` |
+| `call-transparency on` | `55600160f0010001015752` |
+| `call-transparency off` | `55600160f0010001009692` |
+| `walkie-talkie on` | `55600161f0010001015683` |
+| `walkie-talkie off` | `55600161f0010001009743` |
+| `mic-mode natural` | `55600165f00100010096c7` |
+| `mic-mode voice-focus` | `55600165f0010001015707` |
+
+## 18. Nothing Ear (open) (B174)
+
+Page `MainControl_flaaffy`. Fast Pair `FC3AAF`, `CC3444`. Open earbuds
+with a case. Three configs that differ in no flag ear-web reads.
+
+- No ANC: the page has no widget, but ear-web still sends the `0xC01E` read.
+- EQ: earbud EQ with Advanced; advanced EQ status 1 shows Advanced. Custom
+  EQ high shelf 3400 Hz.
+- Low latency only: no in-ear read, codec, bass or spatial audio.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 dual enabled | `55600127c00000092cde` |
+| 0A dual list from 0 | `55600128c001000a00de2e` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+
+## 19. CMF Headphone Pro (B175)
+
+Sections 1 to 6 hold the facts. This section lists its frames in the
+same form as the other models.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 dual enabled | `55600127c00000092cde` |
+| 0A dual list from 0 | `55600128c001000a00de2e` |
+| 0B codec | `55600129c000000bc4de` |
+| 0C spatial | `5560014fc000000c8d14` |
+| 0D Audiodo personal sound | `5560015ac000000d4117` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000c05a450000803f000000404000000c43cdcc4c3f0000000000000000003252` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000c05a450000803f000000000000000c43cdcc4c3f0000000000000000000615` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial concert` | `55600152f0020001020044cd` |
+| `spatial theatre` | `55600152f00200010300455d` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `personal-sound on` | `5560015cf001000101526e` |
+| `personal-sound off` | `5560015cf00100010093ae` |
+
+## 20. CMF Buds 2 (B179)
+
+Page `MainControl_girafarig` (it loads `espeon.js`). Fast Pair `19EF24`,
+`FF2AB0`, `D9AB5D`. Earbuds with a case.
+
+- ANC: all six modes. No codec.
+- EQ: listening-mode commands with a Dirac Opteo button (`00`). Custom EQ
+  high shelf 6900 Hz.
+- Spatial audio: off and fixed. Bass enhance, five levels. In-ear detection
+  and low latency.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq dirac` | `5560011df00200010000fb69` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 21. Nothing ear (1) (B181)
+
+Page `MainControl_one`. Fast Pair `31D53D`, `624011`. Earbuds with a
+case. Three configs with the same frame-relevant flags.
+
+- No UTC write: B181 is the one model ear-web skips it for.
+- ANC override: off, transparency, high (`01`), low (`03`). Reads of `02` and
+  `04` show noise cancellation without a strength.
+- EQ: four presets (balanced, voice, treble, bass), `0xF010` only, no custom
+  EQ and no advanced switch.
+- In-ear detection and low latency. Case LED colours (`0xC017` / `0xF00D`)
+  are not offered here. Ring is one byte, `01` on and `00` off.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 in-ear, +500 | `5560010ec0000004b0dd` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `eq balanced` | `55600110f0020001000027a9` |
+| `eq voice` | `55600110f002000101002639` |
+| `eq treble` | `55600110f0020001020026c9` |
+| `eq bass` | `55600110f002000103002759` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 22. CMF Buds 2 Plus (B184)
+
+Page `MainControl_gligar`. Fast Pair `5C587F`, `4AEB6E`. Earbuds with a
+case.
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: listening-mode commands; the Dirac Opteo button is hidden but a read of
+  0 still shows it. Custom EQ high shelf 6900 Hz.
+- Spatial audio: off and fixed. Bass enhance, five levels.
+- Personal sound (Audiodo). In-ear detection and low latency.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+| 0F Audiodo personal sound | `5560015ac000000fc0d6` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 1` | `55600151f00200010102f6fc` |
+| `bass 2` | `55600151f0020001010476fe` |
+| `bass 3` | `55600151f00200010106f73f` |
+| `bass 4` | `55600151f0020001010876fb` |
+| `bass 5` | `55600151f0020001010af73a` |
+| `bass on, at level 5` | `55600151f0020001010af73a` |
+| `bass off, at level 5` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personal-sound on` | `5560015cf001000101526e` |
+| `personal-sound off` | `5560015cf00100010093ae` |
+
+## 23. CMF Buds 2a (B185)
+
+Page `MainControl_hoothoot` (it loads `donphan.js`). Fast Pair `70F8E3`,
+`ED5412`, `509CAE`. Earbuds with a case.
+
+- ANC: the basic widget.
+- EQ: listening-mode commands; the Dirac button sends **`07`**, and a read of
+  0 shows it too. Custom EQ high shelf 6900 Hz.
+- Bass enhance is read but never written: ear-web's write list leaves B185
+  out, so its bass panel only changes the page.
+- Low latency. No in-ear read.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 bass enhance, +1100 | `5560014ec000000970d7` |
+| 0A dual enabled | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc nc` | `5560010ff0030001010100f9d7` |
+| `eq dirac` | `5560011df00200010700f959` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+
+## 24. Nothing Headphone (a) (B186)
+
+Page `MainControl_hoppip`. Fast Pair `BFD53B`, `DE8953`, `98D02B`, and
+`97EF75`, `6F6C71`, `810478`, `79B3A9`, `A292C6` with altBase B198. Headphone,
+battery id 6 only.
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: earbud EQ with Advanced; advanced EQ status 1 shows Advanced. Custom
+  EQ high shelf 3500 Hz.
+- Spatial audio: off, concert, theatre. Bass enhance, three stages.
+- Low latency. No in-ear read. Ring uses the headphone form.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 bass enhance, +1100 | `5560014ec000000970d7` |
+| 0A dual enabled | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000c05a450000803f000000404000000c43cdcc4c3f0000000000000000003252` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000c05a450000803f000000000000000c43cdcc4c3f0000000000000000000615` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial concert` | `55600152f0020001020044cd` |
+| `spatial theatre` | `55600152f00200010300455d` |
+| `bass 0` | `55600151f0020001000076ad` |
+| `bass 1` | `55600151f00200010105b73e` |
+| `bass 2` | `55600151f0020001010af73a` |
+| `bass on, at level 2` | `55600151f0020001010af73a` |
+| `bass off, at level 2` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+
+## 25. CMF Clip Pro (B189)
+
+Page `MainControl_igglybuff`. Fast Pair `8F28ED`, `E6673A`, `DCD2CB`,
+`DA1280`. Open earbuds with a case.
+
+- No ANC page, but the `0xC01E` read still goes out.
+- EQ: listening-mode commands, B175's values without Dirac. ear-web refuses
+  EQ changes while long battery mode is on or anti-leakage is on audio and
+  calls (UI only). Custom EQ high shelf 3400 Hz.
+- Bass enhance, three stages. A read can report enabled 0 with a nonzero
+  level; the device keeps its last level.
+- Spatial audio: off and fixed, decoded from the mode byte alone (mode 1 is
+  fixed, anything else off), because the head byte carries noise here.
+- Anti-leakage: off, calls only, audio and calls. Long battery mode is read
+  only: switching it reboots the device.
+- Low latency. No in-ear detection or personal sound.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 latency, +600 | `55600141c000000524d3` |
+| 06 gestures, +800 | `55600118c000000678df` |
+| 07 ANC, +900 | `5560011ec0000007311f` |
+| 08 advanced EQ status, +1000 | `5560014cc0000008c8d7` |
+| 09 bass enhance, +1100 | `5560014ec000000970d7` |
+| 0A dual enabled | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D spatial | `5560014fc000000d4cd4` |
+| 0E long battery mode | `55600167c000000e6cd3` |
+| 0F anti-leakage | `55600171c000000fe4d0` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 0` | `55600151f0020001000076ad` |
+| `bass 1` | `55600151f00200010105b73e` |
+| `bass 2` | `55600151f0020001010af73a` |
+| `bass on, at level 2` | `55600151f0020001010af73a` |
+| `bass off, at level 2` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `leakage off` | `55600175f0010001009457` |
+| `leakage calls` | `55600175f0010001015597` |
+| `leakage all` | `55600175f0010001021596` |
+
+## 26. Nothing Ear (3a) (B190)
+
+Page `MainControl_jumpluff`. Fast Pair `7B2328`, `E9C3BE`, `148887`,
+`DB45D3`. Earbuds with a case. Three configs by firmware with the same
+values.
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: earbud EQ with Advanced; the advanced EQ status reply is not mapped.
+  Custom EQ high shelf 3400 Hz.
+- Spatial audio: off and fixed. In-ear detection and low latency.
+- The page has an ear tip test button, but `launchEarFitTest` sends nothing
+  for B190.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A dual enabled | `55600127c000000a6cdf` |
+| 0B dual list from 0 | `55600128c001000b00dfbe` |
+| 0C codec | `55600129c000000c851c` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c0008054450000803f000000404000000c43cdcc4c3f0000000000000000002aa2` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f0200000000008054450000803f000000000000000c43cdcc4c3f0000000000000000001ee5` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 27. Nothing Headphone (1) Pro (B192)
+
+Page `MainControl_lanturn`. Fast Pair `CDFDEC`, `086485`. Headphone,
+battery id 6 only.
+
+- ANC: all six modes. Codec AAC or LDAC.
+- EQ: earbud EQ with Advanced and More detail (`07`). Advanced also requests
+  the precision driver EQ (`0xC06C`, `0xC06D FF`). Advanced EQ status 1 shows
+  Advanced. Custom EQ high shelf 3500 Hz.
+- Spatial audio runs through the Audiodo SDK, so ear-web skips `0xC04F` and
+  offers none; it only logs the `0xE029` / `0x6029` push.
+- Personal sound (Audiodo). Flat EQ is read on connect and pushed when the
+  earcup slider moves; while it is on ear-web blocks transparency, spatial
+  audio and the EQ page (UI only).
+- In-ear (over-ear) detection and low latency. Ring uses the headphone form.
+- Reply-triggered writes ear-web sends and this tool does not: a gesture
+  reply holding device 6, button 10, gesture 7, action 31 makes it send
+  `0xF003 01 06 0a 07 01`; a precision driver EQ mode reply of 0 makes it send
+  `0xF06C 01`.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 EQ, +100 | `5560011fc0000002ccdc` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A dual enabled | `55600127c000000a6cdf` |
 | 0B dual list from 0 | `55600128c001000b00dfbe` |
 | 0C codec | `55600129c000000c851c` |
 | 0D Audiodo personal sound | `5560015ac000000d4117` |
 | 0E flat EQ | `55600168c000000e38d2` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq balanced` | `5560014ff0020001000088ac` `55600110f0020001000027a9` |
+| `eq voice` | `5560014ff0020001000088ac` `55600110f002000101002639` |
+| `eq treble` | `5560014ff0020001000088ac` `55600110f0020001020026c9` |
+| `eq bass` | `5560014ff0020001000088ac` `55600110f002000103002759` |
+| `eq custom` | `5560014ff0020001000088ac` `55600110f0020001050024f9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq advanced` | `5560014ff00200010100893c` `5560014dc0010001ff90ab` `5560016cc00000018916` `5560016dc0010001ff97cb` |
+| `eq detail` | `5560014ff0020001000088ac` `55600110f002000107002599` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000c05a450000803f000000404000000c43cdcc4c3f0000000000000000003252` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000c05a450000803f000000000000000c43cdcc4c3f0000000000000000000615` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+| `personal-sound on` | `5560015cf001000101526e` |
+| `personal-sound off` | `5560015cf00100010093ae` |
+
+## 28. CMF Buds Pro 2 (B195)
+
+Page `MainControl_espeon`. Fast Pair `F51D3D`, `A544CE`, `9EAC04`,
+`1D07D4`, `53BFE6`, `072714`. A later hardware revision of B172 with the same
+page.
+
+- As B172, except: bass enhance has three stages, dual connection writes do
+  not reboot it, and the Dirac/LDAC block does not apply
+  (`diracOpteoSupport` 2).
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D codec | `55600129c000000d44dc` |
+| 0E spatial | `5560014fc000000e0cd5` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq dirac` | `5560011df00200010000fb69` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 0` | `55600151f0020001000076ad` |
+| `bass 1` | `55600151f00200010105b73e` |
+| `bass 2` | `55600151f0020001010af73a` |
+| `bass on, at level 2` | `55600151f0020001010af73a` |
+| `bass off, at level 2` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |
+
+## 29. CMF Buds 2 (B197)
+
+Page `MainControl_girafarig`. Fast Pair `3B1320`, `359A7D`, `00FDED`. A
+later hardware revision of B179 with the same page.
+
+- As B179, except bass enhance has three stages.
+
+Connect sequence, actual op ids:
+
+| Op | Frame |
+|---|---|
+| 01 battery, 0 ms | `55600107c0000001acdf` |
+| 02 listening mode, +200 | `55600150c00000029912` |
+| 03 firmware, +300 | `55600142c0000003e0d1` |
+| 04 UTC time, +400 | `5560010af00400046abc51002342` |
+| 05 in-ear, +500 | `5560010ec0000005711d` |
+| 06 latency, +600 | `55600141c000000664d2` |
+| 07 gestures, +800 | `55600118c0000007b91f` |
+| 08 ANC, +900 | `5560011ec0000008711b` |
+| 09 advanced EQ status, +1000 | `5560014cc00000090917` |
+| 0A bass enhance, +1100 | `5560014ec000000a30d6` |
+| 0B dual enabled | `55600127c000000bad1f` |
+| 0C dual list from 0 | `55600128c001000c00dd8e` |
+| 0D spatial | `5560014fc000000d4cd4` |
+
+Writes, op 01:
+
+| Setting | Frames, in order |
+|---|---|
+| `anc off` | `5560010ff0030001010500fb17` |
+| `anc transparency` | `5560010ff0030001010700fa77` |
+| `anc high` | `5560010ff0030001010100f9d7` |
+| `anc mid` | `5560010ff0030001010200f927` |
+| `anc low` | `5560010ff0030001010300f8b7` |
+| `anc adaptive` | `5560010ff0030001010400fa87` |
+| `eq dirac` | `5560011df00200010000fb69` |
+| `eq rock` | `5560011df00200010100faf9` |
+| `eq electronic` | `5560011df00200010200fa09` |
+| `eq pop` | `5560011df00200010300fb99` |
+| `eq vocals` | `5560011df00200010400f9a9` |
+| `eq classical` | `5560011df00200010500f839` |
+| `eq custom` | `5560011df00200010600f8c9` `55600144c0000001e910` `55600144c0000001e910` |
+| `eq-custom 3 0 -3` | `55600141f035000103000040c00100000000000075443333333f02000040c000a0d7450000803f000000404000000c43cdcc4c3f000000000000000000531b` |
+| `eq-custom 0 0 0` | `55600141f035000103000000800100000000000075443333333f020000000000a0d7450000803f000000000000000c43cdcc4c3f000000000000000000675c` |
+| `spatial off` | `55600152f0020001000045ad` |
+| `spatial fixed` | `55600152f00200010100443d` |
+| `bass 0` | `55600151f0020001000076ad` |
+| `bass 1` | `55600151f00200010105b73e` |
+| `bass 2` | `55600151f0020001010af73a` |
+| `bass on, at level 2` | `55600151f0020001010af73a` |
+| `bass off, at level 2` | `55600151f0020001000af6aa` |
+| `low-latency on` | `55600140f00200010100763c` |
+| `low-latency off` | `55600140f0020001020076cc` |
+| `in-ear on` | `55600104f003000101010179a4` |
+| `in-ear off` | `55600104f0030001010100b864` |

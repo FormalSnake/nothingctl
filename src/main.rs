@@ -15,7 +15,7 @@ use tokio::io::AsyncBufReadExt;
 use protocol::action::{Action, GRAMMAR};
 use protocol::frame::OpCounter;
 use protocol::model::{self, Model};
-use protocol::state::snapshot;
+use protocol::state::{State, snapshot};
 use session::{Link, planned_action, planned_connect};
 use transport::UnsupportedModel;
 
@@ -32,6 +32,10 @@ struct Cli {
     /// Model to plan frames for with --dry-run.
     #[arg(long, global = true, default_value = "B175")]
     model: String,
+    /// Firmware version to plan frames for with --dry-run, for the features
+    /// some models have on some firmware only.
+    #[arg(long, global = true)]
+    firmware: Option<String>,
     /// Debug output on stderr: every frame sent and received.
     #[arg(short, long, global = true)]
     verbose: bool,
@@ -113,22 +117,23 @@ async fn dry_run(cli: &Cli) -> anyhow::Result<ExitCode> {
     let model: &Model = model::by_base(&cli.model).ok_or_else(|| anyhow!("no table for model {}", cli.model))?;
     eprintln!("dry run for {} {}: nothing is sent", model.base, model.name);
     let mut ops = OpCounter::default();
+    let state = State { firmware: cli.firmware.clone(), ..State::default() };
     match &cli.command {
         Cmd::List { .. } => anyhow::bail!("list sends nothing; run it without --dry-run"),
-        Cmd::Status { .. } => print_frames(&planned_connect(model, &mut ops)),
+        Cmd::Status { .. } => print_frames(&planned_connect(model, cli.firmware.as_deref(), &mut ops)),
         Cmd::Set { setting, .. } => {
             let action = Action::parse(setting).map_err(|e| anyhow!(e))?;
-            print_frames(&planned_action(model, &action, &mut ops).map_err(|e| anyhow!(e))?);
+            print_frames(&planned_action(model, &state, &action, &mut ops).map_err(|e| anyhow!(e))?);
         }
         Cmd::Watch { .. } => {
-            print_frames(&planned_connect(model, &mut ops));
+            print_frames(&planned_connect(model, cli.firmware.as_deref(), &mut ops));
             let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
             while let Some(line) = lines.next_line().await? {
                 let args: Vec<&str> = line.split_whitespace().collect();
                 if args.is_empty() {
                     continue;
                 }
-                match Action::parse(&args).and_then(|a| planned_action(model, &a, &mut ops)) {
+                match Action::parse(&args).and_then(|a| planned_action(model, &state, &a, &mut ops)) {
                     Ok(frames) => print_frames(&frames),
                     Err(message) => print_json(&serde_json::json!({"type": "error", "message": message})),
                 }
@@ -172,9 +177,13 @@ async fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
         Cmd::Set { device, setting } => {
             let action = Action::parse(setting).map_err(|e| anyhow!(e))?;
             let conn = transport::open(device.as_deref()).await?;
-            action.frames(conn.model).map_err(|e| anyhow!(e))?;
             let (r, w) = tokio::io::split(conn.stream);
             let mut link = Link::new(conn.model, r, w);
+            if action.needs_state(conn.model) {
+                link.connect_sequence().await.context("link dropped during the status read")?;
+            } else {
+                action.frames(conn.model, &link.state).map_err(|e| anyhow!(e))?;
+            }
             link.one_shot(&action).await.map_err(|e| anyhow!(e))?;
             print_json(&serde_json::json!({"type": "ack", "cmd": action.describe()}));
             Ok(ExitCode::SUCCESS)
@@ -222,32 +231,25 @@ fn print_status(s: &protocol::state::Snapshot) {
     if let Some([bass, mid, treble]) = s.eq.custom {
         println!("custom eq    bass {bass} mid {mid} treble {treble}");
     }
-    if let Some(on) = s.low_latency {
-        println!("low latency  {}", if on { "on" } else { "off" });
-    }
     if let Some(sp) = &s.spatial {
         println!("spatial      {}  ({})", or_unknown(sp.mode), sp.available.join(", "));
     }
     let on_off = |on: bool| if on { "on" } else { "off" };
-    if let Some(on) = s.in_ear {
-        println!("in-ear       {}", on_off(on));
-    }
     if let Some(b) = &s.bass {
         let level = b.level.map_or("unknown".to_string(), |l| l.to_string());
         let enabled = or_unknown(b.enabled.map(on_off));
-        println!("bass         level {level} of 0..{}, {enabled}", b.levels - 1);
+        println!("bass         level {level} of {}..{}, {enabled}", b.levels[0], b.levels[1]);
     }
-    if let Some(on) = s.personal_sound {
-        println!("personal     {}", on_off(on));
+    for t in model::TOGGLE_KEYS {
+        if let Some(on) = s.settings.get(t.key).and_then(|v| v.as_bool()) {
+            println!("{:<12} {}", t.name, on_off(on));
+        }
     }
-    if let Some(l) = &s.leakage {
-        println!("leakage      {}  ({})", or_unknown(l.mode), l.available.join(", "));
-    }
-    if let Some(on) = s.long_battery_mode {
-        println!("long battery {}", on_off(on));
-    }
-    if let Some(on) = s.flat_eq {
-        println!("flat eq      {}", on_off(on));
+    for c in model::CHOICES {
+        if let Some(v) = s.settings.get(c.key).filter(|v| !v.is_null()) {
+            let available: Vec<&str> = c.modes.iter().map(|m| m.name).collect();
+            println!("{:<12} {}  ({})", c.name, or_unknown(v["mode"].as_str()), available.join(", "));
+        }
     }
 }
 

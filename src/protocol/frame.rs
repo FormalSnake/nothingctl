@@ -31,6 +31,12 @@ pub enum Command {
     LongBatteryRead,
     LeakageRead,
     FlatEqRead,
+    PersonalAncRead,
+    MimiRead,
+    SuperMicRead,
+    MicModeRead,
+    CallTransparencyRead,
+    WalkieTalkieRead,
     AncSet,
     ListeningModeSet,
     CustomEqSet,
@@ -42,11 +48,17 @@ pub enum Command {
     BassSet,
     PersonalSoundSet,
     LeakageSet,
+    PersonalAncSet,
+    MimiSet,
+    SuperMicSet,
+    MicModeSet,
+    CallTransparencySet,
+    WalkieTalkieSet,
 }
 
 impl Command {
     #[cfg(test)]
-    pub const ALL: [Command; 33] = [
+    pub const ALL: [Command; 45] = [
         Command::BatteryRead,
         Command::FirmwareRead,
         Command::AncRead,
@@ -69,6 +81,12 @@ impl Command {
         Command::LongBatteryRead,
         Command::LeakageRead,
         Command::FlatEqRead,
+        Command::PersonalAncRead,
+        Command::MimiRead,
+        Command::SuperMicRead,
+        Command::MicModeRead,
+        Command::CallTransparencyRead,
+        Command::WalkieTalkieRead,
         Command::AncSet,
         Command::ListeningModeSet,
         Command::CustomEqSet,
@@ -80,6 +98,12 @@ impl Command {
         Command::BassSet,
         Command::PersonalSoundSet,
         Command::LeakageSet,
+        Command::PersonalAncSet,
+        Command::MimiSet,
+        Command::SuperMicSet,
+        Command::MicModeSet,
+        Command::CallTransparencySet,
+        Command::WalkieTalkieSet,
     ];
 
     pub const fn id(self) -> u16 {
@@ -106,6 +130,12 @@ impl Command {
             Command::LongBatteryRead => 0xC067,
             Command::LeakageRead => 0xC071,
             Command::FlatEqRead => 0xC068,
+            Command::PersonalAncRead => 0xC020,
+            Command::MimiRead => 0xC022,
+            Command::SuperMicRead => 0xC05E,
+            Command::MicModeRead => 0xC064,
+            Command::CallTransparencyRead => 0xC05F,
+            Command::WalkieTalkieRead => 0xC060,
             Command::AncSet => 0xF00F,
             Command::ListeningModeSet => 0xF01D,
             Command::CustomEqSet => 0xF041,
@@ -117,6 +147,12 @@ impl Command {
             Command::BassSet => 0xF051,
             Command::PersonalSoundSet => 0xF05C,
             Command::LeakageSet => 0xF075,
+            Command::PersonalAncSet => 0xF011,
+            Command::MimiSet => 0xF015,
+            Command::SuperMicSet => 0xF05F,
+            Command::MicModeSet => 0xF065,
+            Command::CallTransparencySet => 0xF060,
+            Command::WalkieTalkieSet => 0xF061,
         }
     }
 
@@ -136,7 +172,7 @@ impl Command {
             Command::LatencyRead => "latency read",
             Command::GesturesRead => "gestures read",
             Command::SpatialRead => "spatial read",
-            Command::PersonalSoundRead => "personal sound read",
+            Command::PersonalSoundRead => "personal sound (audiodo) read",
             Command::CodecRead => "codec read",
             Command::DualEnabledRead => "dual connection enabled read",
             Command::DualListRead => "dual connection list read",
@@ -149,6 +185,12 @@ impl Command {
             Command::LongBatteryRead => "long battery mode read",
             Command::LeakageRead => "anti-leakage read",
             Command::FlatEqRead => "flat eq read",
+            Command::PersonalAncRead => "personalized anc read",
+            Command::MimiRead => "personal sound (mimi) read",
+            Command::SuperMicRead => "super mic read",
+            Command::MicModeRead => "mic mode read",
+            Command::CallTransparencyRead => "call transparency read",
+            Command::WalkieTalkieRead => "walkie-talkie read",
             Command::AncSet => "anc set",
             Command::ListeningModeSet => "eq preset set",
             Command::CustomEqSet => "custom eq set",
@@ -158,8 +200,14 @@ impl Command {
             Command::AdvancedEqSet => "advanced eq switch",
             Command::InEarSet => "in-ear detection set",
             Command::BassSet => "bass enhance set",
-            Command::PersonalSoundSet => "personal sound set",
+            Command::PersonalSoundSet => "personal sound (audiodo) set",
             Command::LeakageSet => "anti-leakage set",
+            Command::PersonalAncSet => "personalized anc set",
+            Command::MimiSet => "personal sound (mimi) set",
+            Command::SuperMicSet => "super mic set",
+            Command::MicModeSet => "mic mode set",
+            Command::CallTransparencySet => "call transparency set",
+            Command::WalkieTalkieSet => "walkie-talkie set",
         }
     }
 }

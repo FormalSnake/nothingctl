@@ -100,8 +100,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
         self.ops.after_chunk();
         if !self.config_sent && self.state.firmware.is_some() {
             self.config_sent = true;
-            for &(cmd, payload) in self.model.config_reads {
-                self.send(cmd, payload).await?;
+            let fw = self.state.firmware.clone();
+            for r in self.model.config_reads.iter().filter(|r| r.applies(fw.as_deref())) {
+                self.send(r.cmd, r.payload).await?;
             }
         }
         if !self.custom_requested && self.state.custom_selected(self.model) && self.state.custom_eq.is_none() {
@@ -125,7 +126,11 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
                     Event::Timer | Event::Line(_) => break,
                 }
             }
-            self.send(step.cmd, step.payload).await?;
+            // ear-web checks a gated read when its time comes, against the
+            // firmware it has by then.
+            if step.applies(self.state.firmware.as_deref()) {
+                self.send(step.cmd, step.payload).await?;
+            }
         }
         let deadline = Instant::now() + SETTLE;
         while !self.state.complete(self.model) {
@@ -140,7 +145,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
     }
 
     pub async fn apply(&mut self, action: &Action) -> Result<(), String> {
-        let frames = action.frames(self.model)?;
+        let frames = action.frames(self.model, &self.state)?;
         for (cmd, payload) in frames {
             self.send(cmd, &payload).await.map_err(|e| format!("write failed: {e}"))?;
         }
@@ -208,24 +213,26 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
 }
 
 /// The frames a connect sequence sends, for `--dry-run`, assuming the
-/// firmware reply arrives after the last timed read.
-pub fn planned_connect(model: &Model, ops: &mut OpCounter) -> Vec<(String, &'static str)> {
+/// firmware reply carries `firmware` and arrives after the last timed read.
+pub fn planned_connect(model: &Model, firmware: Option<&str>, ops: &mut OpCounter) -> Vec<(String, &'static str)> {
     model
         .connect_reads
         .iter()
+        .filter(|s| s.applies(firmware))
         .map(|s| (s.cmd, s.payload))
-        .chain(model.config_reads.iter().copied())
+        .chain(model.config_reads.iter().filter(|r| r.applies(firmware)).map(|r| (r.cmd, r.payload)))
         .map(|(cmd, payload)| (hex(&encode(cmd, ops.next(), payload)), cmd.label()))
         .collect()
 }
 
 pub fn planned_action(
     model: &Model,
+    state: &State,
     action: &Action,
     ops: &mut OpCounter,
 ) -> Result<Vec<(String, &'static str)>, String> {
     Ok(action
-        .frames(model)?
+        .frames(model, state)?
         .into_iter()
         .map(|(cmd, payload)| (hex(&encode(cmd, ops.next(), &payload)), cmd.label()))
         .collect())
@@ -273,6 +280,12 @@ mod tests {
                     0xC067 => Some(reply(0x4067, &[0x00])),
                     0xC071 => Some(reply(0x4071, &[0x01])),
                     0xC068 => Some(reply(0x4068, &[0x00])),
+                    0xC020 => Some(reply(0x4020, &[0x01])),
+                    0xC022 => Some(reply(0x4022, &[0x00])),
+                    0xC05E => Some(reply(0x405E, &[0x01])),
+                    0xC064 => Some(reply(0x4064, &[0x01])),
+                    0xC05F => Some(reply(0x405F, &[0x00])),
+                    0xC060 => Some(reply(0x4060, &[0x01])),
                     0xC044 => Some(reply(0x4044, &crate::protocol::action::custom_eq_payload(&B175, [1, 2, 3]))),
                     _ => None,
                 };

@@ -2,9 +2,11 @@
 //! offsets from docs/protocol.md section 4. A short or unknown frame changes
 //! nothing.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
-use super::model::{BatteryId, Model};
+use super::model::{BatteryId, CHOICES, Decode, Model, TOGGLE_KEYS};
 use super::parser::Frame;
 
 pub const BATTERY_REPLY: u16 = 0x4007;
@@ -14,18 +16,8 @@ pub const ANC_REPLY: u16 = 0x401E;
 pub const ANC_PUSH: u16 = 0xE003;
 pub const ANC_PUSH_ALT: u16 = 0x6003;
 pub const ADVANCED_EQ_REPLY: u16 = 0x404C;
-pub const IN_EAR_REPLY: u16 = 0x400E;
 pub const BASS_REPLY: u16 = 0x404E;
-pub const PERSONAL_SOUND_REPLY: u16 = 0x405A;
-pub const PERSONAL_SOUND_PUSH: u16 = 0xE019;
-pub const PERSONAL_SOUND_PUSH_ALT: u16 = 0x6019;
-pub const LEAKAGE_REPLY: u16 = 0x4071;
-pub const LONG_BATTERY_REPLY: u16 = 0x4067;
-pub const FLAT_EQ_REPLY: u16 = 0x4068;
-pub const FLAT_EQ_PUSH: u16 = 0xE01C;
-pub const FLAT_EQ_PUSH_ALT: u16 = 0x601C;
 pub const CUSTOM_EQ_REPLY: u16 = 0x4044;
-pub const LATENCY_REPLY: u16 = 0x4041;
 pub const SPATIAL_REPLY: u16 = 0x404F;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,16 +35,14 @@ pub struct State {
     pub eq_preset: Option<u8>,
     /// `[bass, mid, treble]`.
     pub custom_eq: Option<[f32; 3]>,
-    pub low_latency: Option<bool>,
     /// `[mode, head]` as read back.
     pub spatial: Option<[u8; 2]>,
-    pub in_ear: Option<bool>,
     /// `[enabled, wire level]` as read back.
     pub bass: Option<[u8; 2]>,
-    pub personal_sound: Option<bool>,
-    pub leakage: Option<u8>,
-    pub long_battery: Option<bool>,
-    pub flat_eq: Option<bool>,
+    /// By toggle key.
+    pub toggles: BTreeMap<&'static str, bool>,
+    /// Mode code by choice key.
+    pub choices: BTreeMap<&'static str, u8>,
 }
 
 pub fn decode_battery(f: &Frame) -> Vec<(u8, u8, bool)> {
@@ -129,11 +119,6 @@ impl State {
                     self.custom_eq = Some(v);
                 }
             }
-            LATENCY_REPLY if model.low_latency => match f.byte(8) {
-                Some(1) => self.low_latency = Some(true),
-                Some(2) => self.low_latency = Some(false),
-                _ => {}
-            },
             SPATIAL_REPLY if !model.spatial.is_empty() => {
                 if let (Some(mode), Some(head)) = (f.byte(8), f.byte(9)) {
                     self.spatial = Some([mode, head]);
@@ -146,34 +131,9 @@ impl State {
                     self.eq_preset = Some(adv.preset);
                 }
             }
-            IN_EAR_REPLY if model.in_ear => {
-                if let Some(v) = f.byte(10) {
-                    self.in_ear = Some(v == 1);
-                }
-            }
-            BASS_REPLY if !model.bass.is_empty() => {
+            BASS_REPLY if model.bass.is_some() => {
                 if let (Some(on), Some(level)) = (f.byte(8), f.byte(9)) {
                     self.bass = Some([on, level]);
-                }
-            }
-            PERSONAL_SOUND_REPLY | PERSONAL_SOUND_PUSH | PERSONAL_SOUND_PUSH_ALT if model.personal_sound => {
-                if let Some(v) = f.byte(8) {
-                    self.personal_sound = Some(v == 1);
-                }
-            }
-            LEAKAGE_REPLY if !model.leakage.is_empty() => {
-                if let Some(v) = f.byte(8) {
-                    self.leakage = Some(v);
-                }
-            }
-            LONG_BATTERY_REPLY if model.long_battery => {
-                if let Some(v) = f.byte(8) {
-                    self.long_battery = Some(v == 1);
-                }
-            }
-            FLAT_EQ_REPLY | FLAT_EQ_PUSH | FLAT_EQ_PUSH_ALT if model.flat_eq => {
-                if let Some(v) = f.byte(8) {
-                    self.flat_eq = Some(v == 1);
                 }
             }
             id if id == model.eq.reply => {
@@ -182,10 +142,35 @@ impl State {
                 }
             }
             id => {
-                crate::debug!("rx ignored {id:04x}");
+                if !self.apply_setting(model, id, f) {
+                    crate::debug!("rx ignored {id:04x}");
+                }
             }
         }
         *self != before
+    }
+
+    /// Toggles and choices: true when `id` belongs to one of the model's.
+    fn apply_setting(&mut self, model: &Model, id: u16, f: &Frame) -> bool {
+        if let Some((t, _)) = model.toggles.iter().find(|(t, _)| t.replies.contains(&id)) {
+            let on = match (t.decode, f.byte(t.at)) {
+                (_, None) => return true,
+                (Decode::One, Some(v)) => v == 1,
+                (Decode::NonZero, Some(v)) => v != 0,
+                (Decode::OneTwo, Some(1)) => true,
+                (Decode::OneTwo, Some(2)) => false,
+                (Decode::OneTwo, Some(_)) => return true,
+            };
+            self.toggles.insert(t.key, on);
+            return true;
+        }
+        if let Some(c) = model.choices.iter().find(|c| c.replies.contains(&id)) {
+            if let Some(v) = f.byte(c.at) {
+                self.choices.insert(c.key, v);
+            }
+            return true;
+        }
+        false
     }
 
     pub fn custom_selected(&self, model: &Model) -> bool {
@@ -194,19 +179,16 @@ impl State {
 
     /// Every reply a status snapshot waits for has arrived.
     pub fn complete(&self, model: &Model) -> bool {
+        let fw = self.firmware.as_deref();
         !self.battery.is_empty()
-            && self.firmware.is_some()
-            && (model.anc.is_empty() || self.anc_code.is_some())
+            && fw.is_some()
+            && (model.anc(fw).is_empty() || self.anc_code.is_some())
             && self.eq_preset.is_some()
-            && (!model.low_latency || self.low_latency.is_some())
             && (model.spatial.is_empty() || self.spatial.is_some())
+            && (model.bass.is_none() || self.bass.is_some())
+            && model.toggles(fw).all(|t| self.toggles.contains_key(t.key))
+            && model.choices.iter().all(|c| self.choices.contains_key(c.key))
             && (!self.custom_selected(model) || self.custom_eq.is_some())
-            && (!model.in_ear || self.in_ear.is_some())
-            && (model.bass.is_empty() || self.bass.is_some())
-            && (!model.personal_sound || self.personal_sound.is_some())
-            && (model.leakage.is_empty() || self.leakage.is_some())
-            && (!model.long_battery || self.long_battery.is_some())
-            && (!model.flat_eq || self.flat_eq.is_some())
     }
 }
 
@@ -241,7 +223,8 @@ pub struct EqJson {
 pub struct BassJson {
     pub enabled: Option<bool>,
     pub level: Option<u8>,
-    pub levels: u8,
+    /// Lowest and highest level `set bass` takes.
+    pub levels: [u8; 2],
 }
 
 #[derive(Serialize)]
@@ -256,17 +239,29 @@ pub struct Snapshot {
     pub battery: Vec<BatteryJson>,
     pub anc: Option<ModeJson>,
     pub eq: EqJson,
-    pub low_latency: Option<bool>,
     pub spatial: Option<ModeJson>,
-    pub in_ear: Option<bool>,
     pub bass: Option<BassJson>,
-    pub personal_sound: Option<bool>,
-    pub leakage: Option<ModeJson>,
-    pub long_battery_mode: Option<bool>,
-    pub flat_eq: Option<bool>,
+    /// Every toggle and choice key; `null` when the model lacks it.
+    #[serde(flatten)]
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snapshot {
+    let fw = state.firmware.as_deref();
+    let anc = model.anc(fw);
+    let mut settings = serde_json::Map::new();
+    for key in TOGGLE_KEYS.iter().map(|t| t.key) {
+        let has = model.toggles(fw).any(|t| t.key == key);
+        let value = state.toggles.get(key).filter(|_| has).map_or(serde_json::Value::Null, |v| (*v).into());
+        settings.insert(key.to_string(), value);
+    }
+    for c in CHOICES {
+        let value = model.choices.iter().find(|m| m.key == c.key).map_or(serde_json::Value::Null, |c| {
+            let mode = state.choices.get(c.key).and_then(|v| c.modes.iter().find(|m| m.code == *v)).map(|m| m.name);
+            serde_json::json!({ "mode": mode, "available": c.modes.iter().map(|m| m.name).collect::<Vec<_>>() })
+        });
+        settings.insert(c.key.to_string(), value);
+    }
     Snapshot {
         kind: "state",
         address: address.to_string(),
@@ -278,32 +273,24 @@ pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snap
             .iter()
             .map(|b| BatteryJson { id: b.id.as_str(), level: b.level, charging: b.charging })
             .collect(),
-        anc: (!model.anc.is_empty()).then(|| ModeJson {
+        anc: (!anc.is_empty()).then(|| ModeJson {
             mode: state.anc_code.and_then(|c| model.anc_by_code(c)).map(|m| m.name),
-            available: model.anc.iter().map(|m| m.name).collect(),
+            available: anc.iter().map(|m| m.name).collect(),
         }),
         eq: EqJson {
             preset: state.eq_preset.and_then(|v| model.preset_by_value(v)).map(|p| p.name),
             available: model.eq.presets.iter().filter(|p| p.settable).map(|p| p.name).collect(),
             custom: model.eq.custom.as_ref().and(state.custom_eq),
         },
-        low_latency: if model.low_latency { state.low_latency } else { None },
         spatial: (!model.spatial.is_empty()).then(|| ModeJson {
             mode: state.spatial.and_then(|p| model.spatial_by_payload(p)).map(|m| m.name),
             available: model.spatial.iter().map(|m| m.name).collect(),
         }),
-        in_ear: if model.in_ear { state.in_ear } else { None },
-        bass: (!model.bass.is_empty()).then(|| BassJson {
+        bass: model.bass.as_ref().map(|b| BassJson {
             enabled: state.bass.map(|[on, _]| on == 1),
-            level: state.bass.and_then(|[_, wire]| model.bass.iter().position(|w| *w == wire)).map(|i| i as u8),
-            levels: model.bass.len() as u8,
+            level: state.bass.and_then(|[_, wire]| b.wire.iter().position(|w| *w == wire)).map(|i| i as u8),
+            levels: [u8::from(!b.zero_is_off), b.wire.len() as u8 - 1],
         }),
-        personal_sound: if model.personal_sound { state.personal_sound } else { None },
-        leakage: (!model.leakage.is_empty()).then(|| ModeJson {
-            mode: state.leakage.and_then(|c| model.leakage.iter().find(|m| m.code == c)).map(|m| m.name),
-            available: model.leakage.iter().map(|m| m.name).collect(),
-        }),
-        long_battery_mode: if model.long_battery { state.long_battery } else { None },
-        flat_eq: if model.flat_eq { state.flat_eq } else { None },
+        settings,
     }
 }
