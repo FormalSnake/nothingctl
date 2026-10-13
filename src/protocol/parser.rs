@@ -32,6 +32,7 @@ impl Frame {
         self.bytes.get(from..from.checked_add(len)?)
     }
 
+    #[cfg(test)]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }

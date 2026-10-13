@@ -49,7 +49,11 @@ impl std::fmt::Display for UnsupportedModel {
             .collect::<Vec<_>>()
             .join(", ");
         match &self.model_id {
-            Some(id) => write!(f, "model id {id} on {} is not supported (supported: {supported}); nothing was sent", self.address),
+            Some(id) => write!(
+                f,
+                "model id {id} on {} is not supported (supported: {supported}); nothing was sent",
+                self.address
+            ),
             None => write!(
                 f,
                 "{} lists no Fast Pair service, so its model cannot be identified (supported: {supported}); nothing was sent",
