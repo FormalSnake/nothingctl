@@ -260,14 +260,14 @@ mod decode {
     }
 
     fn json(model: &Model, s: &State) -> serde_json::Value {
-        serde_json::to_value(snapshot(model, s, "AA", "n")).unwrap()
+        serde_json::to_value(snapshot(model, "", s, "AA", "n")).unwrap()
     }
 
     #[test]
     fn battery_reply_and_push() {
         let mut s = State::default();
         assert!(feed(&mut s, &reply(0x4007, &[0x01, 0x06, 0x80 | 55])));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["battery"], serde_json::json!([{"id": "single", "level": 55, "charging": true}]));
         assert!(feed(&mut s, &reply(0xE001, &[0x01, 0x06, 54])));
         assert_eq!(s.battery[0].level, 54);
@@ -293,13 +293,13 @@ mod decode {
     fn anc_reply_and_push() {
         let mut s = State::default();
         feed(&mut s, &reply(0x401E, &[0x01, 0x01]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["anc"]["mode"], "high");
         feed(&mut s, &reply(0xE003, &[0x01, 0x07]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["anc"]["mode"], "transparency");
         feed(&mut s, &reply(0xE003, &[0x01, 0x42]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["anc"]["mode"], serde_json::Value::Null);
     }
 
@@ -307,11 +307,11 @@ mod decode {
     fn eq_preset_reply() {
         let mut s = State::default();
         feed(&mut s, &reply(0x4050, &[0x03]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["eq"]["preset"], "pop");
         assert_eq!(json["eq"]["custom"], serde_json::Value::Null);
         feed(&mut s, &reply(0x4050, &[0x00]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["eq"]["preset"], "dirac");
     }
 
@@ -337,7 +337,7 @@ mod decode {
         feed(&mut s, &reply(0x4042, b"1.0.0.65"));
         feed(&mut s, &reply(0x4041, &[0x02]));
         feed(&mut s, &reply(0x404F, &[0x02, 0x00]));
-        let json = serde_json::to_value(snapshot(&B175, &s, "AA", "n")).unwrap();
+        let json = serde_json::to_value(snapshot(&B175, "", &s, "AA", "n")).unwrap();
         assert_eq!(json["firmware"], "1.0.0.65");
         assert_eq!(json["lowLatency"], false);
         assert_eq!(json["spatial"]["mode"], "concert");

@@ -147,7 +147,7 @@ $ nothingctl --dry-run set anc high
   "type": "state",
   "address": "AA:BB:CC:DD:EE:FF",
   "name": "CMF Headphone Pro",
-  "model": { "base": "B175", "name": "CMF Headphone Pro", "kind": "headphone" },
+  "model": { "base": "B175", "id": "1EFB39", "name": "CMF Headphone Pro", "kind": "headphone" },
   "firmware": "1.0.1.52",
   "battery": [{ "id": "single", "level": 80, "charging": false }],
   "anc": { "mode": "high", "available": ["off", "transparency", "high", "mid", "low", "adaptive"] },

@@ -26,6 +26,8 @@ pub struct Link<R, W> {
     ops: OpCounter,
     parser: Parser,
     pub model: &'static Model,
+    /// The Fast Pair model id, for the snapshot.
+    pub model_id: String,
     pub state: State,
     config_sent: bool,
     custom_requested: bool,
@@ -46,6 +48,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
             ops: OpCounter::default(),
             parser: Parser::default(),
             model,
+            model_id: String::new(),
             state: State::default(),
             config_sent: false,
             custom_requested: false,
@@ -177,7 +180,8 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Link<R, W> {
         out: &mut impl FnMut(serde_json::Value),
     ) -> io::Result<()> {
         let snap = |link: &Self| {
-            serde_json::to_value(state::snapshot(link.model, &link.state, address, name)).unwrap_or_default()
+            serde_json::to_value(state::snapshot(link.model, &link.model_id, &link.state, address, name))
+                .unwrap_or_default()
         };
         let mut last = snap(self);
         out(last.clone());
@@ -305,7 +309,7 @@ mod tests {
         let mut link = Link::new(&B175, r, w);
         link.connect_sequence().await.unwrap();
         assert!(link.state.complete(&B175));
-        let snap = serde_json::to_value(state::snapshot(&B175, &link.state, "AA", "CMF")).unwrap();
+        let snap = serde_json::to_value(state::snapshot(&B175, "", &link.state, "AA", "CMF")).unwrap();
         assert_eq!(snap["battery"][0]["level"], 80);
         assert_eq!(snap["anc"]["mode"], "off");
         assert_eq!(snap["eq"]["preset"], "custom");

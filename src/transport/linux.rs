@@ -137,5 +137,5 @@ pub async fn open(address: Option<&str>) -> anyhow::Result<Connection> {
     };
 
     let (stream, handle) = connect_service(&session, &device, uuid(CONTROL_UUID)).await?;
-    Ok(Connection { device: chosen, model, stream: Box::new(stream), _guard: Box::new((handle, session)) })
+    Ok(Connection { device: chosen, model, model_id, stream: Box::new(stream), _guard: Box::new((handle, session)) })
 }

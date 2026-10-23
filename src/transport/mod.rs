@@ -27,6 +27,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> IoStream for T {}
 pub struct Connection {
     pub device: DeviceInfo,
     pub model: &'static Model,
+    pub model_id: String,
     pub stream: Box<dyn IoStream>,
     /// Keeps the BlueZ session and profile registration alive for as long as
     /// the stream is in use.

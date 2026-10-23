@@ -166,7 +166,7 @@ async fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
             let (r, w) = tokio::io::split(conn.stream);
             let mut link = Link::new(conn.model, r, w);
             link.connect_sequence().await.context("link dropped during the status read")?;
-            let snap = snapshot(link.model, &link.state, &conn.device.address, &conn.device.name);
+            let snap = snapshot(link.model, &conn.model_id, &link.state, &conn.device.address, &conn.device.name);
             if *json {
                 print_json(&snap);
             } else {
@@ -200,6 +200,7 @@ async fn run(cli: &Cli) -> anyhow::Result<ExitCode> {
             };
             let (r, w) = tokio::io::split(conn.stream);
             let mut link = Link::new(conn.model, r, w);
+            link.model_id = conn.model_id.clone();
             let lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
             let result = match link.connect_sequence().await {
                 Ok(()) => link.watch(&conn.device.address, &conn.device.name, lines, &mut |v| print_json(&v)).await,

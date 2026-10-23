@@ -195,6 +195,9 @@ impl State {
 #[derive(Serialize)]
 pub struct ModelJson {
     pub base: &'static str,
+    /// The Fast Pair model id the device answered with; it tells a model's
+    /// colourways apart.
+    pub id: String,
     pub name: &'static str,
     pub kind: &'static str,
 }
@@ -246,7 +249,7 @@ pub struct Snapshot {
     pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
-pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snapshot {
+pub fn snapshot(model: &Model, id: &str, state: &State, address: &str, name: &str) -> Snapshot {
     let fw = state.firmware.as_deref();
     let anc = model.anc(fw);
     let mut settings = serde_json::Map::new();
@@ -266,7 +269,7 @@ pub fn snapshot(model: &Model, state: &State, address: &str, name: &str) -> Snap
         kind: "state",
         address: address.to_string(),
         name: name.to_string(),
-        model: ModelJson { base: model.base, name: model.name, kind: model.kind.as_str() },
+        model: ModelJson { base: model.base, id: id.to_string(), name: model.name, kind: model.kind.as_str() },
         firmware: state.firmware.clone(),
         battery: state
             .battery
