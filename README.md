@@ -112,6 +112,21 @@ crate) and a headset paired in Bluetooth settings.
 cargo +stable-x86_64-pc-windows-msvc install --git https://github.com/FormalSnake/nothingctl
 ```
 
+### Tray app
+
+`tray/` is a tray icon for Windows (and macOS) built on
+[NativeDesktop](https://github.com/FormalStudio/NativeDesktop). Clicking it opens a flyout with the
+device's picture, battery, noise control, EQ, spatial audio and switches. It runs `nothingctl
+watch` from its own directory or PATH, so install both:
+
+```
+cargo +stable-x86_64-pc-windows-msvc install --git https://github.com/FormalSnake/nothingctl nothingctl nothingctl-tray
+```
+
+The device pictures come from ear-web at a pinned commit, downloaded on first use and cached.
+`cargo test --test flyout` in `tray/` renders the flyout in the Windows skin to
+`tray/target/flyout/`.
+
 ## Usage
 
 ```

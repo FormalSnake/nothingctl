@@ -1,0 +1,47 @@
+[package]
+name = "nothingctl-tray"
+version = "0.1.0"
+edition = "2024"
+description = "A tray flyout for Nothing and CMF headphones, over nothingctl"
+license = "MIT"
+publish = false
+
+[dependencies]
+nd = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["sync"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+nd-backend-gpui = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main", features = ["capture"] }
+nd-gpui = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main", features = ["platform", "test-support"] }
+nd-theme = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+nd-ui = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+
+# Owns the main thread for headless GPUI, so libtest's harness is off.
+[[test]]
+name = "flyout"
+harness = false
+
+[build-dependencies]
+nd = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main", default-features = false, features = ["build"] }
+
+# Its own workspace: the CLI above stays free of GPUI.
+[workspace]
+
+# nd carries its own patched GPUI, which only reaches this workspace through this table.
+[patch.crates-io]
+gpui-pre = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-fast = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-pre-linux = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-fast-linux = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-pre-wgpu = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-fast-wgpu = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }
+gpui-pre-windows = { git = "https://github.com/FormalStudio/NativeDesktop", branch = "main" }

@@ -1,0 +1,7 @@
+[app]
+id = "dev.formalsnake.nothingctl-tray"
+display_name = "Nothing"
+icon = "assets/icon.png"
+
+[windows]
+publisher = "FormalSnake"
