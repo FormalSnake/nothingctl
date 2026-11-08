@@ -9,14 +9,11 @@ use anyhow::{Context, anyhow, bail};
 use bluer::rfcomm::{Profile, ProfileHandle, ReqError, Role, Stream};
 use bluer::{Address, Device, Session, Uuid};
 use futures::StreamExt;
-use tokio::io::AsyncReadExt;
 
-use super::{Connection, DeviceInfo, UnsupportedModel, select};
-use crate::protocol::frame::hex;
+use super::{Connection, DeviceInfo, UnsupportedModel, read_model_id, select};
 use crate::protocol::model::{self, CONTROL_UUID, FAST_PAIR_UUID};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-const MODEL_ID_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn uuid(s: &str) -> Uuid {
     s.parse().expect("constant uuid")
@@ -91,27 +88,10 @@ async fn connect_service(session: &Session, device: &Device, service: Uuid) -> a
     }
 }
 
-/// ear-web's model query: read the Fast Pair channel until a chunk of
-/// exactly 7 bytes arrives and take bytes 4..6 as the model id. Nothing is
-/// written to this channel.
-async fn read_model_id(session: &Session, device: &Device) -> anyhow::Result<String> {
+async fn fast_pair_model_id(session: &Session, device: &Device) -> anyhow::Result<String> {
     let (stream, handle) = connect_service(session, device, uuid(FAST_PAIR_UUID)).await?;
-    let (mut reader, _unused_writer) = tokio::io::split(stream);
-    let mut buf = [0u8; 256];
-    let id = tokio::time::timeout(MODEL_ID_TIMEOUT, async {
-        loop {
-            let n = reader.read(&mut buf).await?;
-            if n == 0 {
-                bail!("the Fast Pair channel closed before the model id arrived");
-            }
-            crate::debug!("fast pair rx {}", hex(&buf[..n]));
-            if n == 7 {
-                return Ok(hex(&buf[4..7]).to_uppercase());
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("no model id on the Fast Pair channel within {}s", MODEL_ID_TIMEOUT.as_secs()))??;
+    let (reader, _unused_writer) = tokio::io::split(stream);
+    let id = read_model_id(reader).await?;
     drop(handle);
     Ok(id)
 }
@@ -130,7 +110,7 @@ pub async fn open(address: Option<&str>) -> anyhow::Result<Connection> {
     if !has_fast_pair {
         return Err(UnsupportedModel { model_id: None, address: chosen.address }.into());
     }
-    let model_id = read_model_id(&session, &device).await?;
+    let model_id = fast_pair_model_id(&session, &device).await?;
     crate::debug!("model id {model_id}");
     let Some(model) = model::by_model_id(&model_id) else {
         return Err(UnsupportedModel { model_id: Some(model_id), address: chosen.address }.into());

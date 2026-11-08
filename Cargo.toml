@@ -18,5 +18,15 @@ bluer = { version = "0.17.4", features = ["bluetoothd", "rfcomm"] }
 futures = "0.3.34"
 uuid = "1.26.1"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_Rfcomm",
+    "Devices_Enumeration",
+    "Foundation_Collections",
+    "Win32_Devices_Bluetooth",
+    "Win32_Networking_WinSock",
+] }
+
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["test-util", "rt", "macros", "io-util", "time", "sync"] }

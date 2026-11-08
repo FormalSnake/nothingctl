@@ -1,11 +1,11 @@
 use super::{Connection, DeviceInfo};
 
-const NEEDS_LINUX: &str = "the Bluetooth transport needs Linux and BlueZ";
+const UNSUPPORTED: &str = "the Bluetooth transport needs Linux (BlueZ) or Windows";
 
 pub async fn list() -> anyhow::Result<Vec<DeviceInfo>> {
-    anyhow::bail!(NEEDS_LINUX)
+    anyhow::bail!(UNSUPPORTED)
 }
 
 pub async fn open(_address: Option<&str>) -> anyhow::Result<Connection> {
-    anyhow::bail!(NEEDS_LINUX)
+    anyhow::bail!(UNSUPPORTED)
 }

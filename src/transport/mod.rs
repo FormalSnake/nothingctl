@@ -1,7 +1,12 @@
-//! The Bluetooth side: BlueZ on Linux, a stub that errors everywhere else.
+//! The Bluetooth side: BlueZ on Linux, Winsock on Windows, a stub that errors
+//! everywhere else.
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use std::time::Duration;
 
+use anyhow::{anyhow, bail};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+
+use crate::protocol::frame::hex;
 use crate::protocol::model::Model;
 
 #[cfg(target_os = "linux")]
@@ -9,10 +14,17 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{list, open};
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::{list, open};
+
+#[cfg(not(any(target_os = "linux", windows)))]
 mod stub;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 pub use stub::{list, open};
+
+const MODEL_ID_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct DeviceInfo {
@@ -29,8 +41,8 @@ pub struct Connection {
     pub model: &'static Model,
     pub model_id: String,
     pub stream: Box<dyn IoStream>,
-    /// Keeps the BlueZ session and profile registration alive for as long as
-    /// the stream is in use.
+    /// Keeps the platform session (BlueZ profile registration) alive for as
+    /// long as the stream is in use.
     pub _guard: Box<dyn Send>,
 }
 
@@ -80,4 +92,25 @@ pub fn select(devices: Vec<DeviceInfo>, address: Option<&str>) -> anyhow::Result
         1 => Ok(connected.remove(0)),
         n => anyhow::bail!("{n} Nothing devices are connected, pick one with -d"),
     }
+}
+
+/// ear-web's model query: read the Fast Pair channel until a chunk of
+/// exactly 7 bytes arrives and take bytes 4..6 as the model id. Nothing is
+/// written to this channel.
+async fn read_model_id(mut reader: impl AsyncRead + Unpin) -> anyhow::Result<String> {
+    let mut buf = [0u8; 256];
+    tokio::time::timeout(MODEL_ID_TIMEOUT, async {
+        loop {
+            let n = reader.read(&mut buf).await?;
+            if n == 0 {
+                bail!("the Fast Pair channel closed before the model id arrived");
+            }
+            crate::debug!("fast pair rx {}", hex(&buf[..n]));
+            if n == 7 {
+                return Ok(hex(&buf[4..7]).to_uppercase());
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("no model id on the Fast Pair channel within {}s", MODEL_ID_TIMEOUT.as_secs()))?
 }

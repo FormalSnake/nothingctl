@@ -1,10 +1,10 @@
 # nothingctl
 
 Battery, noise control and EQ for Nothing and CMF headphones and earbuds,
-from the Linux command line.
+from the Linux or Windows command line.
 
 nothingctl talks to the headset over the Bluetooth RFCOMM service the Nothing
-X app uses, through BlueZ. `status` reads everything once, `set` changes one
+X app uses, through BlueZ on Linux and Winsock on Windows. `status` reads everything once, `set` changes one
 setting, and `watch` holds the link open and prints a JSON line on every
 change, for status bars and desktop shells.
 
@@ -13,7 +13,8 @@ change, for status bars and desktop shells.
 ┌──────────────────────┐   RFCOMM    ┌──────────────────────────┐
 │ nothingctl           │ ──────────▶ │ Nothing control service  │
 │ status, set, watch   │ ◀────────── │ replies and pushes       │
-└──────────────────────┘    BlueZ    └──────────────────────────┘
+└──────────────────────┘   BlueZ /   └──────────────────────────┘
+                           Winsock
 ```
 
 The protocol and the device list come from
@@ -102,6 +103,15 @@ cargo install --git https://github.com/FormalSnake/nothingctl
 The headset has to be paired and connected through BlueZ first
 (`bluetoothctl`, or your desktop's Bluetooth settings).
 
+### Windows
+
+Needs the MSVC Rust toolchain (the GNU one has no `dlltool` for the `windows`
+crate) and a headset paired in Bluetooth settings.
+
+```
+cargo +stable-x86_64-pc-windows-msvc install --git https://github.com/FormalSnake/nothingctl
+```
+
 ## Usage
 
 ```
@@ -186,15 +196,15 @@ Pair service to read it from.
 | Exit code | |
 |---|---|
 | 0 | done, or `watch` saw stdin close |
-| 1 | BlueZ, link or connection failure, or `watch` saw the link drop |
+| 1 | Bluetooth stack, link or connection failure, or `watch` saw the link drop |
 | 2 | bad arguments |
 | 3 | unsupported model, nothing was sent |
 
 ## Safety
 
 The control link is opened only by service UUID
-`aeac4a03-dff5-498f-843a-34487cf133eb`, with BlueZ resolving the RFCOMM
-channel over SDP as Chrome does for a Web Serial page. No channel number is
+`aeac4a03-dff5-498f-843a-34487cf133eb`, with BlueZ or Windows resolving the
+RFCOMM channel over SDP as Chrome does for a Web Serial page. No channel number is
 hardcoded, and a device without that record is refused. The model id is read
 from the Fast Pair service (`df21fe2c-2515-4fdb-8886-f12c4d67927c`), and
 nothing is written there.
